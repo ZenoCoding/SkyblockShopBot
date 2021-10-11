@@ -1,0 +1,32 @@
+{
+    "859201687264690206": {
+        "price": 0.3,
+        "prefix": "!",
+        "buyer": 863879650379825202,
+        "vouch": 863860424041824257,
+        "blacklisted": [
+            859201687264690209
+        ],
+        "ticket": {
+            "category": 863615345055236116,
+            "logging": 863615350288941067
+        },
+        "tickets": {},
+        "sellers": {
+            "188768108071223296": 10
+        },
+        "stock": 3000.0
+    },
+    "869326370067587072": {
+        "prefix": "!",
+        "price": 0.3,
+        "vouch": "unset",
+        "blacklisted": [],
+        "ticket": {
+            "category": "unset",
+            "logging": "unset"
+        },
+        "tickets": {},
+        "sellers": {}
+    }
+}

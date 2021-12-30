@@ -15,7 +15,7 @@ class Info(commands.Cog):
 
     @commands.command(aliases=["info"])
     async def about(self, ctx):
-        aboutEmbed = discord.Embed(title="About Us", description="**We are** a shop that is **dedicated** to selling skyblock coins, for low rates, and fast deliveryy times.", color=discord.Color.blue())
+        aboutEmbed = discord.Embed(title="About Us", description="**We are** a shop that is **dedicated** to selling skyblock coins, for low rates, and fast delivery times.", color=discord.Color.blue())
         await ctx.send(embed=aboutEmbed)
 
 

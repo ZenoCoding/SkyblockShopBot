@@ -10,6 +10,8 @@ intents.members = True
 
 
 def get_prefix(client, msg):
+    if msg is None or msg.guild is None:
+        return
     with open('data.json', 'r') as f:
         data = json.load(f)
 
@@ -28,7 +30,6 @@ async def on_ready():
 
 @client.event
 async def on_guild_join(guild):
-    print("joined guild!!")
     with open('data.json', 'r') as f:
         data = json.load(f)
 
@@ -45,7 +46,10 @@ async def on_guild_join(guild):
         },
         "sellers": {
         },
-        "stock": 0
+        "stock": 0,
+        "lastmessages": {
+
+        }
     }
 
     with open("data.json", 'w') as f:
@@ -78,16 +82,22 @@ async def prefix(ctx, prefix="default"):
 
 @client.event
 async def on_message(message):
-    if message.content.startswith(get_prefix(client, message)):
-        with open("data.json", 'r') as f:
-            data = json.load(f)
+    if message is None or message.content is None:
+        return
 
-        blacklisted = data[str(message.guild.id)]["blacklisted"]
-        if message.channel.id in blacklisted and not message.author.guild_permissions.administrator:
-            blacklistedEmbed = discord.Embed(title="Channel Blacklisted", description="Please use the right channels! Please use the #bot-commands channel in your server!", color=discord.Color.red())
-            await message.channel.send(embed=blacklistedEmbed)
-        else:
-            await client.process_commands(message)
+    try:
+        if message.content.startswith(get_prefix(client, message)):
+            with open("data.json", 'r') as f:
+                data = json.load(f)
+
+            blacklisted = data[str(message.guild.id)]["blacklisted"]
+            if message.channel.id in blacklisted and not message.author.guild_permissions.administrator:
+                blacklistedEmbed = discord.Embed(title="Channel Blacklisted", description="Please use the right channels! Please use the #bot-commands channel in your server!", color=discord.Color.red())
+                await message.channel.send(embed=blacklistedEmbed)
+            else:
+                await client.process_commands(message)
+    except:
+        return
 
 
 @client.command()

@@ -15,18 +15,22 @@
         "sellers": {
             "188768108071223296": 10
         },
-        "stock": 3000.0
+        "stock": 3000.0,
+        "lastmessages": {}
     },
-    "869326370067587072": {
+    "900542540074352680": {
         "prefix": "!",
         "price": 0.3,
-        "vouch": "unset",
+        "vouch": 900547105872019456,
         "blacklisted": [],
         "ticket": {
             "category": "unset",
             "logging": "unset"
         },
         "tickets": {},
-        "sellers": {}
+        "sellers": {},
+        "stock": 0,
+        "lastmessages": {},
+        "buyer": 900547162641952839
     }
 }

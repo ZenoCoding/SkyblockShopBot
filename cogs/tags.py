@@ -1,6 +1,10 @@
 import discord
+from discord.commands import SlashCommandGroup
 from discord.ext import commands
 from discord.ext.commands import has_permissions
+
+import utils
+
 
 class Tags(commands.Cog):
 
@@ -11,33 +15,29 @@ class Tags(commands.Cog):
     async def on_ready(self):
         print("Tags Cog Loaded")
 
-    @commands.group(pass_context=True)
-    @has_permissions(kick_members=True)
-    async def tag(self, ctx):
-        await ctx.message.delete()
+    tag = SlashCommandGroup("tag", "A tag command, with many different tags to use!")
 
     @tag.command()
     @has_permissions(kick_members=True)
     async def pool(self, ctx):
-        poolEmbed = discord.Embed(title="Paying with Paypal Pool",
-                                  description="Please follow steps.", color=discord.Color.blue())
+        poolEmbed = utils.embed(title="Paying with Paypal Pool",
+                                description="Please follow steps.", color=discord.Color.blue())
         poolEmbed.add_field(name="Step 1", value="Visit our Paypal Pool : https://paypal.me/pools/c/8CvM1x6G63",
                             inline=False)
         poolEmbed.add_field(name="Step 2",
                             value="Press the **CHIP IN** button and enter the amount you need to pay. Then, as a note, add:        **\"I am (yourdiscordname#xxxx) on discord, and I want xxxMil\"**",
                             inline=False)
         poolEmbed.add_field(name="Step 3",
-                            value="Send a screenshot of the payment summary after you have completed the payment.", inline=False)
-        poolEmbed.set_footer(icon_url=ctx.guild.icon_url,
-                              text=f"Quick and easy delivery provided by {ctx.guild.name}.")
-        await ctx.send(embed=poolEmbed)
+                            value="Send a screenshot of the payment summary after you have completed the payment.",
+                            inline=False)
+        await ctx.respond(embed=poolEmbed)
 
     @tag.command()
     @has_permissions(kick_members=True)
     async def paypal(self, ctx):
-        paypalEmbed = discord.Embed(title="Paying with Paypal F&F (FRIENDS AND FAMILY)",
-                                    description="Please follow steps correctly, __make sure to read **carefully**__.",
-                                    color=discord.Color.blue())
+        paypalEmbed = utils.embed(title="Paying with Paypal F&F (FRIENDS AND FAMILY)",
+                                  description="Please follow steps correctly, __make sure to read **carefully**__.",
+                                  color=discord.Color.blue())
         paypalEmbed.add_field(name="Step 1", value="Visit our Paypal : https://paypal.me/huaweilover",
                               inline=False)
         paypalEmbed.add_field(name="Step 2",
@@ -52,15 +52,13 @@ class Tags(commands.Cog):
         paypalEmbed.add_field(name="Step 5",
                               value="After you have sent the payment, send a screenshot of the payment summary.\n*Still not sure how to pay? Check out this video : https://youtu.be/t5jgBY8McFs*",
                               inline=False)
-        paypalEmbed.set_footer(icon_url=ctx.guild.icon_url,
-                              text=f"Quick and easy delivery provided by {ctx.guild.name}.")
-        await ctx.send(embed=paypalEmbed)
+        await ctx.respond(embed=paypalEmbed)
 
     @tag.command()
     @has_permissions(kick_members=True)
     async def paypalcard(self, ctx):
-        paypalcardEmbed = discord.Embed(title="Paying with Credit/Debit ",
-                                        description="Please follow steps.", color=discord.Color.green())
+        paypalcardEmbed = utils.embed(title="Paying with Credit/Debit ",
+                                      description="Please follow steps.", color=discord.Color.green())
         paypalcardEmbed.add_field(name="Step 1",
                                   value="**Visit our Paypal Donation Link : https://www.paypal.com/donate?hosted_button_id=QHG6TYPXLFRA6** ",
                                   inline=False)
@@ -76,19 +74,21 @@ class Tags(commands.Cog):
         paypalcardEmbed.add_field(name="Note", value="**This is a donation for my friend Volkan's new company.**",
                                   inline=False)
         paypalcardEmbed.add_field(name="Example", value="https://prnt.sc/1tldq62", inline=False)
-        await ctx.send(embed=paypalcardEmbed)
+        await ctx.respond(embed=paypalcardEmbed)
 
     @tag.command()
     @has_permissions(kick_members=True)
     async def amazon(self, ctx):
-        amazonEmbed = discord.Embed(title="Paying With Giftcards",
-                                    description="Please follow steps.", color=discord.Color.purple())
+        amazonEmbed = utils.embed(title="Paying With Giftcards",
+                                  description="Please follow steps.", color=discord.Color.purple())
         amazonEmbed.add_field(name="Step 1",
                               value="Visit any website that sells **Amazon __*Turkey*__ Giftcards**. Here is one that I recommend: https://eneba.com/amazon-amazon-gift-card-100-try-turkey",
                               inline=False)
         amazonEmbed.add_field(name="Step 2", value="**Buy the giftcard, and get the code.**", inline=False)
-        amazonEmbed.add_field(name="Step 3", value="Please **send the giftcard code in the TICKET**, and ping wovl.", inline=False)
-        await ctx.send(embed=amazonEmbed)
+        amazonEmbed.add_field(name="Step 3", value="Please **send the giftcard code in the TICKET**, and ping wovl.",
+                              inline=False)
+        await ctx.respond(embed=amazonEmbed)
+
 
 def setup(client):
     client.add_cog(Tags(client))

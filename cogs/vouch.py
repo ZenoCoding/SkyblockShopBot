@@ -1,252 +1,241 @@
-import discord
-import json
+import asyncio
 import datetime
-import time
+import json
+import logging
+
+import discord
+from discord.commands import slash_command, Option
 from discord.ext import commands
-from discord.ext.commands import has_permissions, MissingPermissions
+from discord.ext.commands import has_permissions
+
+import utils
+
+config = utils.db.config
+vouches = utils.db.vouch
+
 
 class Vouch(commands.Cog):
 
     def __init__(self, client):
         self.client = client
 
-    @commands.command()
-    @has_permissions(administrator=True)
-    async def setvouch(self, ctx, channel="default"):
-        if channel == "default":
-            defaultEmbed = discord.Embed(title="Vouch Channel", description="Type `!setvouch <channel id>` to set the channel.")
-            await ctx.send(embed=defaultEmbed)
-        else:
-            with open('data.json', 'r') as f:
-                data = json.load(f)
-
-            if channel == "new":
-                channel = await ctx.guild.create_text_channel("vouches")
-                await channel.set_permissions(ctx.guild.default_role, send_messages=False)
-                createdEmbed = discord.Embed(title="Vouch channel created!", description="Vouch channel has been created.")
-                await ctx.send(embed=createdEmbed)
-                data[str(ctx.guild.id)]["vouch"] = channel.id
-                with open('data.json', 'w') as f:
-                    json.dump(data, f, indent=4)
-                return
-
-            try:
-                vouchchannel = ctx.guild.get_channel(channel)
-            except:
-                vouchchannel = None
-
-            if vouchchannel != None:
-                data[str(ctx.guild.id)]["vouch"] = vouchchannel.id
-                setEmbed = discord.Embed(title="Vouch channel set!",
-                                             description="Vouch channel has been set.")
-                await ctx.send(embed=setEmbed)
-                with open('data.json', 'w') as f:
-                    json.dump(data, f, indent=4)
-                return
-            else:
-                errorEmbed = discord.Embed(title="Invalid channel!", description="You entered an invalid channel! Please try again.", color=discord.Color.red())
-                await ctx.send(embed=errorEmbed)
-
-
-    def isint(self, value):
-        try:
-            value = int(value)
-            return value
-        except:
-            return False
-
-    async def broadcastvouch(self, vouchdata, guildid):
-        with open("data.json", 'r') as f:
-            data = json.load(f)
-
-        #Looping through all the guilds the bot is in
-        for guild in self.client.guilds:
-            if guild.id == guildid:
-                return
-            guilddata = data[str(guild.id)]
-            vouchchannel = guilddata["vouch"]
-            # try:
-            #Building and Sending the Vouch Embed
-            vouchchannel = guild.get_channel(vouchchannel)
-            vouchEmbed = discord.Embed(title=f"Vouch!", color=discord.Color.blue(),
-                                       description=f"{vouchdata['author']['name']} rated us {vouchdata['score']}.",
-                                       timestamp=datetime.datetime.fromisoformat(vouchdata['timestamp']))
-            vouchEmbed.add_field(name=f"{vouchdata['rating']}", value=f"\u200b")
-            vouchEmbed.set_footer(text=f"Sent By {vouchdata['author']['name']}#{vouchdata['author']['desc']}",
-                                  icon_url=vouchdata['author']['avatar'])
-            await vouchchannel.send(embed=vouchEmbed)
-
-            with open("vouches.json", 'r') as f:
-                vdata = json.load(f)
-
-            #Editing Channel Name to include Vouches
-            await vouchchannel.edit(name=f"vouches-{len(vdata['vouch'])}")
-            # except:
-            #     print(f"Broadcasting vouch failed for server {guild.name}, with an id of {guild.id}. This was likely caused by the vouch channel not being set in that server.")
-            #     continue
-
-
-
-    @commands.command()
-    async def vouch(self, ctx, score="default", *, message="default"):
-        with open('data.json', 'r') as f:
-            data = json.load(f)
-
-        #Getting the buyer and Vouch Roles
-
-        try:
-            buyerrole = ctx.guild.get_role(data[str(ctx.guild.id)]["buyer"])
-            vouchchannel = ctx.guild.get_channel(data[str(ctx.guild.id)]["vouch"])
-        except:
-            await ctx.send("you didn't set a buyer and/or vouch channel lol, remind me to put an error embed here lmao, if you are not an admin ping one")
-            return
-
-        if buyerrole not in ctx.message.author.roles:
-            notbuyerEmbed = discord.Embed(title="Insufficient Roles", description="You aren't a buyer. Please buy something before leaving a vouch!", color=discord.Color.red())
-            await ctx.send(embed=notbuyerEmbed)
-            return
-
-        #If there is no vouch channel
-        if data[str(ctx.guild.id)]["vouch"] == "unset" or vouchchannel == None:
-            unsetEmbed = discord.Embed(title="Vouch Channel Unset",
-                                         description="Have an admin setup the vouch channel! Contact the owner for help.",
-                                         color=discord.Color.red())
-            await ctx.send(embed=unsetEmbed)
-            return
-
-        #Not Specifying Score
-        if self.isint(score) == False or score == "default" or int(score) < 1 or int(score) > 5:
-            missingEmbed = discord.Embed(title="Score Invalid", description="Please specify a score! `!vouch <score> (out of 5)`", color=discord.Color.red())
-            await ctx.send(embed=missingEmbed)
-        else:
-            #message isn't provided as argument
-            if message == "default":
-                ratingEmbed = discord.Embed(title="Rating", description="Please leave a rating explaining your score. You have `60` seconds.", color=discord.Color.blue())
-                await ctx.send(embed=ratingEmbed)
-
-                rating = await self.client.wait_for('message', check=lambda message: message.author == ctx.author, timeout=60)
-                rating = rating.content
-            else:
-                rating = message
-
-            successEmbed = discord.Embed(title="Success! :white_check_mark:", description=f"Your rating of `{score}` stars! has been submitted.")
-            await ctx.send(embed=successEmbed)
-
-
-            stars = ""
-
-            for i in range(int(score)):
-                stars = stars + ":star:"
-
-            #creating and sending vouch embed
-            vouchEmbed = discord.Embed(title=f"Vouch!", color=discord.Color.blue(), description=f"{ctx.message.author.name} rated us {stars}.", timestamp=datetime.datetime.utcnow())
-            vouchEmbed.add_field(name=f"{rating}", value=f"\u200b")
-            vouchEmbed.set_footer(text=f"Sent By {ctx.author.name}#{ctx.author.discriminator}", icon_url=ctx.message.author.avatar_url)
-
-            await vouchchannel.send(embed=vouchEmbed)
-
-            #adding vouch information to database
-            with open('vouches.json', 'r') as f2:
-                vdata = json.load(f2)
-
-
-            await vouchchannel.edit(name=f"vouches-{len(vdata['vouch'])}")
-
-            vouchdata = {
-                "author": {
-                    "id": ctx.author.id,
-                    "name": ctx.author.name,
-                    "desc": ctx.author.discriminator,
-                    "avatar": str(ctx.author.avatar_url)
-                },
-                "score": stars,
-                "rating": rating,
-                "timestamp": str(datetime.datetime.utcnow())
-            }
-
-            vdata['vouch'].append(vouchdata)
-
-            with open("vouches.json", 'w') as f2:
-                json.dump(vdata, f2, indent=4)
-
-            # Broadcasting vouch to all servers
-            await self.broadcastvouch(vouchdata, ctx.guild.id)
-
-    @commands.command()
-    @has_permissions(administrator=True)
-    async def restore(self, ctx, channel="default"):
-        try:
-            channel = ctx.guild.get_channel(int(channel))
-        except:
-            channel = None
-        if channel == "default" or channel == None:
-            errorEmbed = discord.Embed(title=":x: Error :x:",
-                                       description=f"**Please enter a *valid* channel to restore vouches to.\n!restore `channelid`\n!restore 859634782963105842**",
-                                       color=discord.Color.red())
-            errorEmbed.set_thumbnail(
-                url="https://cdn.discordapp.com/attachments/860656459507171368/896878163873919007/error.png")
-            errorEmbed.set_footer(icon_url=ctx.guild.icon_url,
-                                  text=f"Quick and easy delivery provided by {ctx.guild.name}.")
-            await ctx.send(embed=errorEmbed)
-        else:
-            startingEmbed = discord.Embed(title="Restoration Starting :white_check_mark:",
-                                       description=f"**Vouch restoration is starting in <#{channel.id}>.**\n*Please be patient, this process can take up to 10 minutes.*",
-                                       color=discord.Color.green())
-            startingEmbed.set_thumbnail(url="https://cdn.discordapp.com/attachments/863860424041824257/896942559652368494/Refresh_Green.png")
-            startingEmbed.set_footer(icon_url=ctx.guild.icon_url, text=f"Quick and easy delivery provided by {ctx.guild.name}.")
-
-            await ctx.send(embed=startingEmbed)
-
-            #Loading Vouches
-            with open('vouches.json', 'r') as f:
-                data = json.load(f)
-
-            vouches = data['vouch']
-
-            #Creating and Sending Embeds
-            time.sleep(1)
-
-            if len(vouches) == 0:
-                #If there are no vouches..
-                errorEmbed = discord.Embed(title=":x: Error :x:",
-                                           description=f"**Oop! It looks like there are no vouches to restore!**",
-                                           color=discord.Color.red())
-                errorEmbed.set_thumbnail(
-                    url="https://cdn.discordapp.com/attachments/860656459507171368/896878163873919007/error.png")
-                errorEmbed.set_footer(icon_url=ctx.guild.icon_url,
-                                      text=f"Quick and easy delivery provided by {ctx.guild.name}.")
-                await ctx.send(embed=errorEmbed)
-            else:
-                #If there are...
-                for vouch in vouches:
-                    failed = 0
-                    try:
-                        vouchEmbed = discord.Embed(title=f"Vouch!", color=discord.Color.blue(),
-                                                   description=f"{vouch['author']['name']} rated us {vouch['score']}.",
-                                                   timestamp=datetime.datetime.fromisoformat(vouch['timestamp']))
-                        vouchEmbed.add_field(name=f"{vouch['rating']}", value=f"\u200b")
-                        vouchEmbed.set_footer(text=f"Sent By {vouch['author']['name']}#{vouch['author']['desc']}",
-                                              icon_url=vouch['author']['avatar'])
-
-                        await channel.send(embed=vouchEmbed)
-                    except:
-                        print(f"an error occured while restoring vouch number `#{vouches.index(vouch)}`")
-                        failed += 1
-                        continue
-
-                await channel.edit(name=f"vouches-{len('vouch')}")
-
-                successEmbed = discord.Embed(title="Restoration Completed :white_check_mark:",
-                                              description=f"**Restoration completed in <#{channel.id}>.**\n*{failed} vouches failed. {len(vouches)} succeeded. {100-(failed/len(vouches))*100}% success rate.*",
-                                              color=discord.Color.green())
-                successEmbed.set_thumbnail(url="https://cdn.discordapp.com/attachments/863860424041824257/896962082422018078/Notepad.png")
-                successEmbed.set_footer(icon_url=ctx.guild.icon_url,
-                                         text=f"Quick and easy delivery provided by {ctx.guild.name}.")
-                await ctx.send(embed=successEmbed)
-
     @commands.Cog.listener()
     async def on_ready(self):
         print("Vouch Cog Loaded")
+
+    @slash_command(name="set_vouch_channel",
+                   description="Set the channel for vouches to appear in.")
+    @has_permissions(administrator=True)
+    async def set_vouch_channel(self, ctx,
+                                channel: Option(discord.TextChannel, "Channel")):
+        config.update_one({"_id": ctx.guild.id}, {"$set": {"vouch": channel.id}})
+
+        success_embed = utils.embed(title="Vouch Channel Set! :white_check_mark:",
+                                    description=f"The vouch channel has been set to {channel.mention}",
+                                    color=discord.Color.green(),
+                                    thumbnail=utils.Image.SUCCESS.value)
+        await ctx.respond(embed=success_embed, ephemeral=True)
+
+    @staticmethod
+    async def broadcast_vouch(vouch_data, guild_id, guilds):
+        # Looping through all the guilds the bot is in
+        for guild in guilds:
+            if guild.id == guild_id:
+                return
+            guild_data = config.find_one({"_id": guild.id})
+
+            # Is the channel valid?
+            vouch_channel = guild.get_channel(guild_data["vouch"])
+            if vouch_channel is None:
+                logging.info(f"Vouch unable to be broadcast in server {guild.name} because the vouch channel set there"
+                             f"is invalid.")
+                continue
+
+            # Building and Sending the Vouch Embed
+            vouch_embed = utils.embed(title=f"Vouch!", color=discord.Color.blue(),
+                                      description=f"{vouch_data['author']['user'][-5:]} rated us {vouch_data['score']}.",
+                                      timestamp=datetime.datetime.fromisoformat(vouch_data['timestamp'],
+                                                                                footer=f"Sent By {vouch_data['author']['user']}",
+                                                                                footer_icon=vouch_data['author'][
+                                                                                    'avatar']))
+            vouch_embed.add_field(name=f"{vouch_data['rating']}", value=f"\u200b")
+            await vouch_channel.send(embed=vouch_embed)
+
+            # Editing Channel Name to include Vouches
+            await vouch_channel.edit(name=f"vouches-{vouches.count_documents({})}")
+
+    @slash_command(name="vouch", description="Leave a rating of the server you are in.")
+    async def vouch(self, ctx,
+                    score: Option(int, "Enter a score out of 5.", min_value=1, max_value=5),
+                    message: Option(str, "Leave a message explaining your rating."),
+                    anonymous: Option(str, "Would you like to be anonymous while leaving your vouch?",
+                                      choices=["Yes", "No"])):
+
+        # Getting the buyer and Vouch Roles
+        buyer_role = ctx.guild.get_role(config.find_one({"_id": ctx.guild.id})["buyer"])
+        vouch_channel = ctx.guild.get_channel(config.find_one({"_id": ctx.guild.id})["vouch"])
+
+        # Errors
+        if buyer_role not in ctx.author.roles:
+            await ctx.respond("no buyer role!")
+            not_buyer_embed = utils.embed(title="Insufficient Roles",
+                                          description="You aren't a buyer. Please buy something before leaving a vouch!",
+                                          color=discord.Color.red(),
+                                          thumbnail=utils.Image.ERROR.value)
+            await ctx.respond(embed=not_buyer_embed, ephemeral=True)
+            return
+
+        # If there is no vouch channel
+        if vouch_channel is None:
+            unset_embed = utils.embed(title="Vouch Channel Unset",
+                                      description="This command is disabled! The server admin has not setup a vouch"
+                                                  " channel.",
+                                      color=discord.Color.red(),
+                                      thumbnail=utils.Image.ERROR.value)
+            await ctx.respond(embed=unset_embed, ephemeral=True)
+            return
+
+        vouch_channel = ctx.guild.get_channel(config.find_one({"_id": ctx.guild.id})["vouch"])
+        user = f"{ctx.author.name}#{ctx.author.discriminator}"
+        anonymous_text = ""
+
+        if anonymous == "Yes":
+            anonymous_text = "anonymous"
+            user = f"anonymous#xxxx"
+
+        success_embed = utils.embed(title="Success! :white_check_mark:",
+                                    description=f"Your {anonymous_text} rating of `{score}` stars! has been submitted.",
+                                    color=discord.Color.green(),
+                                    thumbnail=utils.Image.SUCCESS.value)
+        await ctx.respond(embed=success_embed, ephemeral=True)
+
+        stars = ""
+
+        for i in range(int(score)):
+            stars = stars + ":star:"
+
+        # it is breaking here for some reason
+        # Creating and sending vouch embed
+        vouch_embed = utils.embed(title=f"Buyer Vouch!",
+                                  color=discord.Color.blue(),
+                                  description=f"{user} rated us {stars}.",
+                                  footer=f"Sent By {user}",
+                                  footer_icon=ctx.author.display_avatar)
+        vouch_embed.add_field(name=f"{message}", value=f"\u200b")
+
+        await vouch_channel.send(embed=vouch_embed)
+
+        # Adding vouch information to database
+
+        await vouch_channel.edit(name=f"vouches-{vouches.count_documents({})}")
+
+        vouch_data = {
+            "author": {
+                "id": ctx.author.id,
+                "user": user,
+                "avatar": str(ctx.author.display_avatar)
+            },
+            "score": stars,
+            "rating": message,
+            "timestamp": str(datetime.datetime.now()),
+            "anon": anonymous
+        }
+
+        vouches.insert_one(vouch_data)
+
+        # Broadcasting vouch to all servers
+        await self.broadcast_vouch(vouch_data, ctx.guild.id, self.client.guilds)
+
+    @slash_command(description="Restore vouches to the vouch channel.")
+    @has_permissions(administrator=True)
+    async def restore_vouches(self, ctx: discord.ApplicationContext):
+        vouch_channel = ctx.guild.get_channel(config.find_one({"_id": ctx.guild.id}))
+        if vouch_channel is None:
+            error_embed = utils.embed(title=":x: Error :x:",
+                                      description=f"**There is no vouch channel set in this server! Use "
+                                                  f"`/set_vouch_channel` to set the vouch channel of this server!**",
+                                      color=discord.Color.red(),
+                                      thumbnail=utils.Image.ERROR.value)
+            await ctx.respond(embed=error_embed, ephemeral=True)
+            return
+
+        starting_embed = utils.embed(title="Restoration Starting :white_check_mark:",
+                                     description=f"**Vouch restoration is starting in <#{vouch_channel.id}>."
+                                                 f"**\n*Please be patient, this process can take up to 10 minutes.*",
+                                     color=discord.Color.green(),
+                                     thumbnail=utils.Image.RELOAD.value)
+
+        await ctx.respond(embed=starting_embed, ephemeral=True)
+
+        # Creating and Sending Embeds
+        await asyncio.sleep(1)
+
+        if vouches.count_documents({}) == 0:
+            # If there are no vouches..
+            error_embed = utils.embed(title=":x: Error :x:",
+                                      description=f"**Oops! It looks like there are no vouches to restore!**",
+                                      color=discord.Color.red(),
+                                      thumbnail=utils.Image.ERROR.value)
+            await ctx.respond(embed=error_embed, ephemeral=True)
+            return
+
+        failed = 0
+
+        # If there are...
+        for vouch in vouches.find({}):
+            try:
+                vouch_embed = utils.embed(title=f"Vouch!", color=discord.Color.blue(),
+                                          description=f"{vouch['author']['user'][-5:]} rated us {vouch['score']}.",
+                                          timestamp=datetime.datetime.fromisoformat(vouch['timestamp'],
+                                                                                    footer=f"Sent By {vouch['author']['user']}",
+                                                                                    footer_icon=vouch['author'][
+                                                                                        'avatar']))
+                vouch_embed.add_field(name=f"{vouch['rating']}", value=f"\u200b")
+                await vouch_channel.send(embed=vouch_embed)
+            except Exception:
+                logging.warning(f"Error occurred when restoring vouch. id:`#{vouches.index(vouch)}`")
+                failed += 1
+                continue
+
+        await vouch_channel.edit(name=f"vouches-{vouches.count_documents({})}")
+
+        success_embed = utils.embed(title="Restoration Completed :white_check_mark:",
+                                    description=f"**Restoration completed in <#{vouch_channel.id}>.**\n*{failed} vouches failed to be restored. {len(vouches)} succeeded. {100 - (failed / len(vouches)) * 100}% success rate.*",
+                                    color=discord.Color.green(),
+                                    thumbnail=utils.Image.CALENDAR.value)
+        await ctx.respond(embed=success_embed)
+
+    @slash_command(description="Converts vouches from JSON to MongoDB")
+    async def convert_vouches(self, ctx):
+        with open("vouches.json", "r") as f:
+            data = json.load(f)
+
+        if len(data["vouches"]):
+            error_embed = utils.embed(title=":x: Error :x:",
+                                      description=f"**Oops! It looks like there are no vouches to convert!**",
+                                      color=discord.Color.red(),
+                                      thumbnail=utils.Image.ERROR.value)
+            await ctx.respond(embed=error_embed, ephemeral=True)
+            return
+
+        failed = 0
+
+        for vouch in data["vouches"]:
+            try:
+                vouches.insert_one(vouch)
+            except Exception:
+                logging.warning(f"Error occurred when restoring vouch. id:`#{vouches.index(vouch)}`")
+                failed += 1
+                continue
+
+        success_embed = utils.embed(title="Conversion Completed :white_check_mark:",
+                                    description=f"**Converted {len(data['vouches']) - failed}."
+                                                f" **\n*{failed} vouches failed to be converted."
+                                                f" {100 - (failed / len(vouches)) * 100}% success rate.*",
+                                    color=discord.Color.green(),
+                                    thumbnail=utils.Image.CALENDAR.value)
+        await ctx.respond(embed=success_embed)
+
 
 def setup(client):
     client.add_cog(Vouch(client))

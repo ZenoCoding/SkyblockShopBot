@@ -1,16 +1,15 @@
-import discord
 from discord.ext import commands
 
-class Test(commands.Cog):
+
+class Template(commands.Cog):
 
     def __init__(self, client):
         self.client = client
 
-
-
     @commands.Cog.listener()
     async def on_ready(self):
-        print("Test Cog Loaded")
+        print("Test Cog Loaded - USED FOR DEVELOPMENT PURPOSES ONLY")
+
 
 def setup(client):
-    client.add_cog(Test(client))
+    client.add_cog(Template(client))

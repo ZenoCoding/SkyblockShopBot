@@ -1,13 +1,18 @@
 import discord
-import json
+from discord.commands import SlashCommandGroup
 from discord.ext import commands
-from discord.ext.commands import has_permissions, MissingPermissions
+from discord.ext.commands import has_permissions
+
+import utils
+
+config = utils.db.config
+PRICES = utils.PRICES
+
 
 class Stock(commands.Cog):
 
     def __init__(self, client):
         self.client = client
-        self.prices = 0.3
 
     @commands.Cog.listener()
     async def on_ready(self):
@@ -21,7 +26,7 @@ class Stock(commands.Cog):
         except ValueError:
             return False
 
-    def parseString(self, string):
+    def parse_string(self, string):
         multiplier = 1
 
         if string.lower().endswith("b"):
@@ -37,97 +42,75 @@ class Stock(commands.Cog):
 
         return -1
 
-    @commands.group(pass_context=True, invoke_without_command=True)
-    async def stock(self, ctx):
-        with open('data.json', 'r') as f:
-            data = json.load(f)
+    stock = SlashCommandGroup("stock", "Manages the current stock of the server")
 
-        stock = data[str(ctx.guild.id)]["stock"]
+    @stock.command(name="view",
+                   description="View the stock of the current server."
+                   )
+    async def view(self, ctx):
+        stock = config.find_one({"_id": ctx.guild.id})['stock']
 
-        stockEmbed = discord.Embed(title="Stock :moneybag:",
-                                   description=f"**There are currently `{stock}M` coins in stock.**\n*Head over to #purchase-coins to buy!*",
-                                   color=discord.Color.green())
-        stockEmbed.set_thumbnail(url="https://cdn.discordapp.com/attachments/860656459507171368/896818647270588426/wholepurse.png")
-        stockEmbed.add_field(name="Stock Value", value=f"This is worth `${round(stock*self.prices, 2)} USD` (assuming there is no discount)")
-        stockEmbed.set_footer(icon_url=ctx.guild.icon_url, text=f"Quick and easy delivery provided by {ctx.guild.name}.")
+        stockEmbed = utils.embed(title="Stock :moneybag:",
+                                 description=f"**There are currently `{stock}M` coins in stock.**\n*Head over to #purchase-coins to buy!*",
+                                 color=discord.Color.green())
+        stockEmbed.set_thumbnail(
+            url="https://cdn.discordapp.com/attachments/860656459507171368/896818647270588426/wholepurse.png")
+        stockEmbed.add_field(name="Stock Value",
+                             value=f"This is worth `${round(stock * self.prices, 2)} USD` (assuming there is no discount)")
+        stockEmbed.set_footer(icon_url=ctx.guild.icon_url,
+                              text=f"Quick and easy delivery provided by {ctx.guild.name}.")
 
-        await ctx.send(embed=stockEmbed)
+        await ctx.respond(embed=stockEmbed)
 
-    @stock.command()
+    @stock.command(name="set",
+                   description="Set the stock of the current server.")
     @has_permissions(administrator=True)
     async def set(self, ctx, amount="default"):
-        with open('data.json', 'r') as f:
-            data = json.load(f)
+        stock = config.find_one({"_id": ctx.guild.id})['stock']
 
-        stock = data[str(ctx.guild.id)]["stock"]
+        amount = self.parse_string(amount)
 
-        amount = self.parseString(amount)
+        # Error Embed
+        error_embed = utils.embed(title=":x: Error :x:",
+                                  description=f"**Please enter a *valid* amount to set the stock to.\n/stock set 100\n/stock set 535m**",
+                                  color=discord.Color.red(),
+                                  thumbnail=utils.Image.ERROR.value)
 
-        #Error Embed
-        errorEmbed = discord.Embed(title=":x: Error :x:",
-                                   description=f"**Please enter a *valid* amount to set the stock to.\n!stock set 100\n!stock set 535m**",
-                                   color=discord.Color.red())
-        errorEmbed.set_thumbnail(url="https://cdn.discordapp.com/attachments/860656459507171368/896878163873919007/error.png")
-        errorEmbed.set_footer(icon_url=ctx.guild.icon_url, text=f"Quick and easy delivery provided by {ctx.guild.name}.")
-
-        #Success Embed
-        stockEmbed = discord.Embed(title="Stock Updated :white_check_mark:",
-                                   description=f"**The stock has been updated from `{stock}M` to `{float(amount)}M`.**",
-                                   color=discord.Color.green())
-        stockEmbed.set_thumbnail(url="https://cdn.discordapp.com/attachments/860656459507171368/896818647270588426/wholepurse.png")
-        stockEmbed.set_footer(icon_url=ctx.guild.icon_url, text=f"Quick and easy delivery provided by {ctx.guild.name}.")
+        # Success Embed
+        stock_embed = utils.embed(title="Stock Updated :white_check_mark:",
+                                  description=f"**The stock has been updated from `{stock}M` to `{float(amount)}M`.**",
+                                  color=discord.Color.green(),
+                                  thumbnail=utils.Image.SUCCESS.value)
 
         if amount == "default" or amount == -1:
-            await ctx.send(embed=errorEmbed)
+            await ctx.respond(embed=error_embed, ephemeral=True)
         else:
-            await ctx.send(embed=stockEmbed)
+            await ctx.respond(embed=stock_embed, ephemeral=True)
 
-            data[str(ctx.guild.id)]["stock"] = float(amount)
-            with open("data.json", 'w') as f:
-                json.dump(data, f, indent=4)
+            config.update_one({"_id": ctx.guild.id}, {"$set": {"stock": float(amount)}})
 
-    @stock.command()
+    @stock.command(name="broadcast",
+                   description="Create an announcement of the stock in the current server.")
     @has_permissions(administrator=True)
-    async def broadcast(self, ctx, channel="default"):
-        try:
-            channel = ctx.guild.get_channel(int(channel))
-        except:
-            channel = None
-        if channel == "default" or channel == None:
-            errorEmbed = discord.Embed(title=":x: Error :x:",
-                                       description=f"**Please enter a *valid* channel to broadcast to.\n!stock broadcast `channelid`\n!stock broadcast 859634782963105842**",
-                                       color=discord.Color.red())
-            errorEmbed.set_thumbnail(url="https://cdn.discordapp.com/attachments/860656459507171368/896878163873919007/error.png")
-            errorEmbed.set_footer(icon_url=ctx.guild.icon_url, text=f"Quick and easy delivery provided by {ctx.guild.name}.")
-            await ctx.send(embed=errorEmbed)
-        else:
+    async def broadcast(self, ctx):
 
-            with open('data.json', 'r') as f:
-                data = json.load(f)
+        stock = config.find_one({"_id": ctx.guild.id})["stock"]
 
-            stock = data[str(ctx.guild.id)]["stock"]
+        stock_embed = utils.embed(title="Stock :moneybag:",
+                                  description=f"**There are currently `{stock}M` coins in stock.**\n*Head over to #purchase-coins to buy!*",
+                                  color=discord.Color.green(),
+                                  thumbnail=utils.Image.COIN.value)
+        stock_embed.add_field(name="Stock Value",
+                              value=f"This is worth `${round(stock * self.prices, 2)} USD` (assuming there is no discount)")
 
-            stockEmbed = discord.Embed(title="Stock :moneybag:",
-                                       description=f"**There are currently `{stock}M` coins in stock.**\n*Head over to #purchase-coins to buy!*",
-                                       color=discord.Color.green())
-            stockEmbed.set_thumbnail(url="https://cdn.discordapp.com/attachments/860656459507171368/896818647270588426/wholepurse.png")
-            stockEmbed.add_field(name="Stock Value", value=f"This is worth `${round(stock * self.prices, 2)} USD` (assuming there is no discount)")
-            stockEmbed.set_footer(icon_url=ctx.guild.icon_url, text=f"Quick and easy delivery provided by {ctx.guild.name}.")
+        success_embed = utils.embed(title="Stock Broadcasted :white_check_mark:",
+                                    description=f"**The stock has been broadcasted.**",
+                                    color=discord.Color.green(),
+                                    thumbnail=utils.Image.SUCCESS.value)
 
-            successEmbed = discord.Embed(title="Stock Broadcasted :white_check_mark:",
-                                       description=f"**The stock has been broadcasted in <#{channel.id}>.**",
-                                       color=discord.Color.green())
-            successEmbed.set_thumbnail(url="https://cdn.discordapp.com/attachments/860656459507171368/896818647270588426/wholepurse.png")
-            successEmbed.set_footer(icon_url=ctx.guild.icon_url, text=f"Quick and easy delivery provided by {ctx.guild.name}.")
-
-            await channel.send("||@everyone||")
-            await channel.send(embed=stockEmbed)
-            await ctx.send(embed=successEmbed)
-
-
-
-
-
+        await ctx.send("||@everyone||")
+        await ctx.send(embed=stock_embed)
+        await ctx.respond(embed=success_embed, ephemeral=True)
 
 
 def setup(client):

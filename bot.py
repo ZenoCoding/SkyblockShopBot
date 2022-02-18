@@ -6,6 +6,9 @@ from discord.ext import commands
 
 import utils
 
+# List of "Guilds"
+GUILDS = [859201687264690206] # Put in here
+
 logger = logging.getLogger('discord')
 logger.setLevel(logging.INFO)
 handler = logging.FileHandler(filename='discord.log', encoding='utf-8', mode='w')
@@ -17,7 +20,8 @@ config = utils.db.config
 intents = discord.Intents.default()
 intents.members = True
 
-client = discord.Bot(help_command=None, intents=intents, debug_guilds=[859201687264690206])
+# Remove debug_guilds if you wish to not use this
+client = discord.Bot(help_command=None, intents=intents, debug_guilds=GUILDS)
 
 
 @client.event

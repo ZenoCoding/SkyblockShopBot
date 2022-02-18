@@ -1,3 +1,5 @@
+import logging
+
 import discord
 from discord.commands import slash_command, Option
 from discord.ext import commands
@@ -28,30 +30,32 @@ class PinMessage(commands.Cog):
         print("Pin Message Cog Loaded")
 
     @commands.Cog.listener()
-    async def on_message(self, message):
+    async def on_message(self, message : discord.Message):
         if message is None:
             return
 
-        try:
-            messages = config.find_one({"_id": message.guild.id})["pinned_messages"]
-        except:
-            return
+        pin_msgs = config.find_one({"_id": message.guild.id})["pinned_messages"]
+        pin_msg_channels = pin_msgs.keys()
 
         # If the the message is from the bot
         if message.author.id == self.client.user.id:
             return
 
         # If the message is in a last message channel
-        if str(message.channel.id) in messages[0]:
+        if str(message.channel.id) in pin_msg_channels:
             try:
-                await message.channel.fetch_message(messages[str(message.channel.id)]).delete()
-            except:
-                pass
-            newmessage = await message.channel.send(embed=self.get_embed(messages[str(message.channel.id)][1]))
+                old_message = await message.channel.fetch_message(pin_msgs[str(message.channel.id)][0])
+                await old_message.delete()
+            except Exception as e:
+                config.update_one({"_id": message.guild.id},
+                                  {"$unset": {f"pinned_messages.{message.channel.id}": ""}})
+                logging.log(f"Unable to update pinned message in channel {message.channel.id}, deleting database entry.")
+                raise e
+            new_message = await message.channel.send(embed=pinnable_embeds[pin_msgs[str(message.channel.id)][1]])
 
             # Setting the New Message
             config.update_one({"_id": message.guild.id},
-                              {"$set": {f"pinned_messages.{message.channel.id}.0": newmessage.id}})
+                              {"$set": {f"pinned_messages.{message.channel.id}.0": new_message.id}})
 
     @slash_command(
         name="pin",
@@ -60,8 +64,8 @@ class PinMessage(commands.Cog):
     @has_permissions(administrator=True)
     async def pin(self,
                   ctx,
-                  embed: Option(int, "Pick an embed in the list.")):
-        pinned_embed = self.get_embed(embed)
+                  embed: Option(int, "Pick an embed in the list.", minvalue=1, max_value=len(pinnable_embeds))):
+        pinned_embed = pinnable_embeds[embed]
 
         success_embed = utils.embed(title="Last Message Initiated :white_check_mark:",
                                     description=f"**The bot will now always have the last message in <#{ctx.channel.id}>.**",
@@ -70,11 +74,11 @@ class PinMessage(commands.Cog):
 
         await ctx.respond(embed=success_embed, ephemeral=True)
 
-        message_id = await ctx.send(embed=pinned_embed).id
+        message = await ctx.send(embed=pinned_embed)
 
         # Setting the Message
         config.update_one({"_id": ctx.guild.id},
-                          {"$set": {f"pinned_messages.{ctx.channel.id}": (message_id, embed)}})
+                          {"$set": {f"pinned_messages.{str(ctx.channel.id)}": (message.id, embed)}})
 
     @slash_command(
         name="unpin",
@@ -89,11 +93,12 @@ class PinMessage(commands.Cog):
             await ctx.respond(embed=error_embed, ephemeral=True)
             return
 
+        message = await ctx.channel.fetch_message(
+            config.find_one({f"_id": ctx.guild.id})["pinned_messages"][ctx.channel.id][0])
+        message.delete()
+
         config.update_one({"_id": ctx.guild.id},
                           {"$unset": {f"pinned_messages.{ctx.channel.id}": ""}})
-
-        await ctx.guild.fetch_message(
-            config.find_one({f"_id": ctx.guild.id})["pinned_messages"][ctx.channel.id][0]).delete()
 
         success_embed = utils.embed(title="Message Unpinned :white_check_mark:",
                                     description=f"**The message in <#{ctx.channel.id}> has been removed and unpinned.**",

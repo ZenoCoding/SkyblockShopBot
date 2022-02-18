@@ -7,7 +7,7 @@ import utils
 rewrite = utils.db.rewrite
 
 # Constants
-REWRITE_COOLDOWN = 1  # In Minutes
+REWRITE_COOLDOWN = 60  # In Minutes
 
 
 class Rewriter(commands.Cog):

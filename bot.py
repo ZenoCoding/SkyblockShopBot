@@ -7,7 +7,7 @@ from discord.ext import commands
 import utils
 
 # List of "Guilds"
-GUILDS = [859201687264690206] # Put in here
+GUILDS = [859201687264690206, 945903743319293992] # Put in here
 
 logger = logging.getLogger('discord')
 logger.setLevel(logging.INFO)

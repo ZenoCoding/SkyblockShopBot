@@ -2,13 +2,14 @@ import math
 
 import discord
 from discord.commands import slash_command, Option
+from discord.ext.commands import has_permissions
 from discord.ext import commands
 import threading
 
 import utils
 
 config = utils.db.config
-api_str = 'https://v6.exchangerate-api.com/v6/514e65a9d73595b8e0e6d0ae/latest/USD'
+api_str = 'https://freecurrencyapi.net/api/v2/latest?apikey=226a89b0-94d5-11ec-ad50-55b0fbca66dc'
 cr = utils.RealTimeCurrencyConverter(api_str)
 
 
@@ -136,7 +137,7 @@ class Price(commands.Cog):
                                  inline=False)
             return main_embed
         elif embed == "coins":
-            if discount is not None and num >= discount['discount'][1]:
+            if discount is not None and num >= discount[1]:
                 price_embed = utils.embed(title=f"Prices for {num}M",
                                           description=f"`{num}M` coins is equal to `{round(num * (PRICES[discounted] - PRICES[discounted] * (discount['discount'][0] / 100)))} USD`\n",
                                           color=discord.Color.orange(),
@@ -195,9 +196,10 @@ class Price(commands.Cog):
             raise ValueError
 
     @slash_command(
-        name="discount1",
+        name="discount",
         description="Set discount for coins"
     )
+    @has_permissions(administrator=True)
     async def discount(self,
                        ctx,
                        todo: Option(str, "Choose: set / clear", default="set", required=True),
@@ -222,7 +224,7 @@ class Price(commands.Cog):
             await ctx.respond("Successfully done!", ephemeral=True)
 
     @slash_command(
-        name="price1",
+        name="price",
         description="Convert coins to dollars, and vice versa."
     )
     async def price(self,

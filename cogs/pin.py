@@ -30,7 +30,7 @@ class PinMessage(commands.Cog):
         print("Pin Message Cog Loaded")
 
     @commands.Cog.listener()
-    async def on_message(self, message : discord.Message):
+    async def on_message(self, message: discord.Message):
         if message is None:
             return
 

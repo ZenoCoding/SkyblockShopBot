@@ -24,14 +24,14 @@ class Image(Enum):
 class RealTimeCurrencyConverter():
     def __init__(self, url):
         self.data = requests.get(url).json()
-        self.currencies = self.data['conversion_rates']
+        self.currencies = self.data['data']
 
     def convert(self, amount, from_currency, to_currency):
         initial_amount = amount
         if from_currency != 'USD':
             amount = amount / self.currencies[from_currency]
 
-        amount = round(amount * self.currencies[to_currency], 2)
+        amount = round(amount, 2)
         return amount
 
 

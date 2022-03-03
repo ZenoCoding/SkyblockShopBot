@@ -139,7 +139,7 @@ class Price(commands.Cog):
         elif embed == "coins":
             if discount is not None and num >= discount[1]:
                 price_embed = utils.embed(title=f"Prices for {num}M",
-                                          description=f"`{num}M` coins is equal to `{round(num * (PRICES[discounted] - PRICES[discounted] * (discount['discount'][0] / 100)))} USD`\n",
+                                          description=f"`{num}M` coins is equal to `{round(num * (PRICES[discounted] - PRICES[discounted] * (discount[0] / 100)))} USD`\n",
                                           color=discord.Color.orange(),
                                           thumbnail=utils.Image.COIN.value)
             else:

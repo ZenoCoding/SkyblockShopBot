@@ -19,6 +19,7 @@ class Image(Enum):
     RELOAD = 'https://cdn.discordapp.com/attachments/860656459507171368/930998500148265001/Refresh_Green.png'
     COIN = 'https://cdn.discordapp.com/attachments/860656459507171368/930998500387332156/wholepurse.png'
     CALENDAR = 'https://cdn.discordapp.com/attachments/860656459507171368/930998500852903996/Notepad.png'
+    BAR_GRAPH = 'https://cdn.discordapp.com/attachments/860656459507171368/948804502511816714/pict-bar-chart-cloud-clipart-vector-stencils-library.png'
 
 
 class RealTimeCurrencyConverter():

@@ -33,8 +33,10 @@ class PinMessage(commands.Cog):
     async def on_message(self, message: discord.Message):
         if message is None:
             return
-
-        pin_msgs = config.find_one({"_id": message.guild.id})["pinned_messages"]
+        try:
+            pin_msgs = config.find_one({"_id": message.guild.id})["pinned_messages"]
+        except:
+            return
         pin_msg_channels = pin_msgs.keys()
 
         # If the the message is from the bot

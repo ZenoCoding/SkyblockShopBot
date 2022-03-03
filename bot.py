@@ -41,9 +41,14 @@ async def on_guild_join(guild):
         "ticket": {
             "category": "unset",
             "channel": "unset",
-            "logging": "unset"
+            "logging": "unset",
+            "listing": "unset"
         },
         "sellers": {
+        },
+        "rate": {
+            "starting": 0,
+            "increment": 0
         },
         "stock": 0,
         "pinned_messages": {

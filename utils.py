@@ -36,6 +36,14 @@ class RealTimeCurrencyConverter():
         return amount
 
 
+def is_num(value) -> bool:
+    try:
+        value = float(value)
+        return True
+    except:
+        return False
+
+
 def embed(
         title: str = "\u200b",
         description: str = "\u200b",

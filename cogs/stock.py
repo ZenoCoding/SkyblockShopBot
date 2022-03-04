@@ -56,9 +56,7 @@ class Stock(commands.Cog):
         stockEmbed.set_thumbnail(
             url="https://cdn.discordapp.com/attachments/860656459507171368/896818647270588426/wholepurse.png")
         stockEmbed.add_field(name="Stock Value",
-                             value=f"This is worth `${round(stock * self.prices, 2)} USD` (assuming there is no discount)")
-        stockEmbed.set_footer(icon_url=ctx.guild.icon_url,
-                              text=f"Quick and easy delivery provided by {ctx.guild.name}.")
+                             value=f"This is worth `${round(stock * PRICES[0], 2)} USD` (assuming there is no discount)")
 
         await ctx.respond(embed=stockEmbed)
 
@@ -101,7 +99,7 @@ class Stock(commands.Cog):
                                   color=discord.Color.green(),
                                   thumbnail=utils.Image.COIN.value)
         stock_embed.add_field(name="Stock Value",
-                              value=f"This is worth `${round(stock * self.prices, 2)} USD` (assuming there is no discount)")
+                              value=f"This is worth `${round(stock * PRICES[0], 2)} USD` (assuming there is no discount)")
 
         success_embed = utils.embed(title="Stock Broadcasted :white_check_mark:",
                                     description=f"**The stock has been broadcasted.**",

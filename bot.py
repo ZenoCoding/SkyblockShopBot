@@ -28,7 +28,7 @@ client = discord.Bot(help_command=None, intents=intents, debug_guilds=GUILDS)
 async def on_ready():
     await client.change_presence(status=discord.Status.online,
                                  activity=discord.Game(
-                                     "Selling Coins at discord.gg/skyblockshop\nGreat Rates And Trustable Staff"))
+                                     "Selling Coins at discord.gg/skyblockshop\nGreat Rates And Trustable Staff\nThe place to sell AND buy all things skyblock!"))
     print("Bot is ready. Skyblock Shop Bot up and running.")
     logging.info("Bot is ready. Skyblock Shop Bot up and running.")
 

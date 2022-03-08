@@ -1,5 +1,5 @@
 import discord
-from discord.commands import SlashCommandGroup
+from discord.commands import SlashCommandGroup, Option
 from discord.ext import commands
 from discord.ext.commands import has_permissions
 
@@ -63,7 +63,7 @@ class Stock(commands.Cog):
     @stock.command(name="set",
                    description="Set the stock of the current server.")
     @has_permissions(administrator=True)
-    async def set(self, ctx, amount="default"):
+    async def set(self, ctx, amount: Option(str, autocomplete=discord.utils.basic_autocomplete(["100m", "10m", "1.3b"]))):
         stock = config.find_one({"_id": ctx.guild.id})['stock']
 
         amount = self.parse_string(amount)
@@ -80,7 +80,7 @@ class Stock(commands.Cog):
                                   color=discord.Color.green(),
                                   thumbnail=utils.Image.SUCCESS.value)
 
-        if amount == "default" or amount == -1:
+        if amount == -1:
             await ctx.respond(embed=error_embed, ephemeral=True)
         else:
             await ctx.respond(embed=stock_embed, ephemeral=True)

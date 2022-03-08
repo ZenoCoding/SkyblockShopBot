@@ -38,7 +38,10 @@ class Rewriter(commands.Cog):
     @commands.Cog.listener()
     async def on_ready(self):
         print("Purge Cog Loaded")
-        self.purge_messages.start()
+        try:
+            self.purge_messages.start()
+        except RuntimeError:
+            print("Rewrite task already running, cancelling start...")
 
 
     @message_command(name="Mark as Rewrite")

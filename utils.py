@@ -11,6 +11,7 @@ conn_str = "mongodb+srv://shopbot:admin@skyblockshopdata.t0jjh.mongodb.net/test"
 mongo = pymongo.MongoClient(conn_str)
 db = mongo['data']
 PRICES = [0.35, 0.3]
+INVISIBLE_CHAR = '\u200b'
 
 
 class Image(Enum):
@@ -45,8 +46,8 @@ def is_num(value) -> bool:
 
 
 def embed(
-        title: str = "\u200b",
-        description: str = "\u200b",
+        title: str = INVISIBLE_CHAR,
+        description: str = INVISIBLE_CHAR,
         thumbnail: str = None,
         footer: str = "Quick and fast delivery provided by skyblockmarket.com ",
         footer_icon: str = Image.COIN.value,

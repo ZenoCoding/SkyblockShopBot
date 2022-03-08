@@ -19,7 +19,7 @@ active_tickets = utils.db.tickets
 suppliers = utils.db.suppliers
 config = utils.db.config
 
-active_tickets.delete_many({})
+#active_tickets.delete_many({})
 
 # suppliers.update_one({'guild': 859201687264690206,
 #                       '_id': 535388059634499587},

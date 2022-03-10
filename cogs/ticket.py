@@ -10,6 +10,7 @@ from discord.commands import Option
 from discord.commands import slash_command
 from discord.ext import commands, pages
 from discord.ui import Modal, InputText
+from pymongo import ReturnDocument, collection
 
 import utils
 
@@ -19,13 +20,14 @@ active_tickets = utils.db.tickets
 suppliers = utils.db.suppliers
 config = utils.db.config
 
-#active_tickets.delete_many({})
+active_tickets.delete_many({})
 
 # suppliers.update_one({'guild': 859201687264690206,
 #                       '_id': 535388059634499587},
 #                      {'$set': {'status': 'Available'}})
 
 # Ticket constants
+MAX_TICKETS = 1
 MAIN_TICKET_EMBED = utils.embed(title="Tickets",
                                 description="Click on a button to open a ticket!",
                                 thumbnail=utils.Image.CALENDAR.value)
@@ -40,6 +42,13 @@ class TicketStatuses(Enum):
     LISTED = 'Listed'
     DELIVERED = 'Delivered'
     CLOSED = 'Closed'
+
+
+class TicketSubjects(Enum):
+    COIN = 'Coin'
+    ISLAND = 'Island'
+    MINION = 'Minion'
+    SUPPORT = 'Support'
 
 
 PAYMENT_METHODS = {
@@ -60,33 +69,57 @@ class Ticket(commands.Cog):
     def __init__(self, bot: discord.Bot):
         super().__init__()
         self.bot: discord.Bot = bot
+
+        # Retrieve the Rate class from rate.py
         self.rate = bot.get_cog('Rate')
 
+    # Replaces the collection.update_one and return the document after update
     @staticmethod
-    def updateDocument(collection, update_query: dict, updated_fields: dict) -> None:
-        collection.update_one(update_query, {'$set': updated_fields})
+    def updateDocument(col: collection, update_query: dict, updated_fields: dict):
+        return col.find_one_and_update(update_query, {'$set': updated_fields}, return_document=ReturnDocument.AFTER)
 
+    # Check if the channel is a ticket
     @staticmethod
-    def checkShareticket(ctx: [discord.ApplicationContext, discord.Interaction]) -> None:
+    def checkIsTicket(ctx: [discord.ApplicationContext, discord.Interaction]):
         ticket = active_tickets.find_one({'channel': ctx.channel.id})
         if not ticket:
-            return
+            raise utils.CustomError("This channel is not a ticket")
+        return ticket
 
+    # CHeck if ticket is not just support
+    @staticmethod
+    def buyingTicketCheck(channel_id: discord.TextChannel.id):
+        ticket = active_tickets.find_one({'channel': channel_id})
+        if not ticket.get('product', None):
+            raise utils.CustomError("Ticket doesn't have any products")
+        return ticket
+
+    # Does the shareticket checking
+    @staticmethod
+    def checkShareticket(ctx: [discord.ApplicationContext, discord.Interaction]):
+        # Check if the channel is a ticket
+        ticket = Ticket.checkIsTicket(ctx)
+
+        # Check if there is any supplier role set
         supplier_role = ctx.guild.get_role(config.find_one({'_id': ctx.guild.id}).get('supplier', 0))
         if not supplier_role:
             raise utils.CustomError("There is no supplier role set")
 
-        if buyingTicketCheck(ctx.channel_id)[0]:
-            raise utils.CustomError("Ticket doesn't have any products")
+        # Check if this ticket is for buying products
+        Ticket.buyingTicketCheck(ctx.channel.id)
 
-        if ticket['subject'] != 'coin':
+        # Check if ticket subject is not coin
+        if ticket['subject'] != TicketSubjects.COIN.value:
             raise utils.CustomError("Ticket is not a `coin` selling one")
 
+        # Check if ticket is paid
         if ticket['status'] != TicketStatuses.CONFIRMED.value:
             raise utils.CustomError("Ticket is not in confirmed state")
 
         if ticket['payment_status'] != 'Paid':
             raise utils.CustomError("Ticket is not paid, first you have to confirm the payment!")
+
+        return ticket
 
     @commands.Cog.listener()
     async def on_ready(self):
@@ -99,6 +132,7 @@ class Ticket(commands.Cog):
         self.bot.add_view(SelectPaymentMethod())
         self.bot.add_view(ShareTicket(self.rate))
         self.bot.add_view(ConfirmPayment())
+        self.bot.add_view(AbandonConfirmation())
         self.bot.add_view(Delivered(self.rate))
         self.bot.add_view(Claimed(self.rate.add_ticket))
 
@@ -106,7 +140,7 @@ class Ticket(commands.Cog):
     # async def on_message(self, message):
     #     await askQuestion(message)
 
-    # Send the ticket message
+    # Send the ticket message so user can create ticket
     @slash_command(name="send_ticket_message", description="Send the support message")
     @commands.has_permissions(kick_members=True)
     async def send_ticket_message(self, ctx: discord.ApplicationContext,
@@ -119,55 +153,68 @@ class Ticket(commands.Cog):
                                     description="The main ticket message has been sent")
         await ctx.respond(embed=success_embed, ephemeral=True)
 
-    # # Set the ticket log channel
-    # @slash_command(name="set_ticket_log", description="Set ticket log channel")
-    # @commands.has_permissions(kick_members=True)
-    # async def set_ticket_log(self, ctx: discord.ApplicationContext,
-    #                          channel: Option(discord.TextChannel, "Select ticket log channel")):
-    #     # Fetching and updating the ticket log
-    #     self.updateDocument()({'_id': ctx.guild.id}, {'$set': {'ticket.logging': channel.id}})
-    #
-    #     # Sending success embed as respond
-    #     success_embed = utils.embed(title="Done :white_check_mark:",
-    #                                 description="Ticket log channel has been changed successfully")
-    #     await ctx.respond(embed=success_embed, ephemeral=True)
+    # Set the ticket log channel
+    @slash_command(name="set_ticket_log", description="Set ticket log channel")
+    @commands.has_permissions(kick_members=True)
+    async def set_ticket_log(self, ctx: discord.ApplicationContext,
+                             channel: Option(discord.TextChannel, "Select ticket log channel")):
+        # Fetching and updating the ticket log
+        self.updateDocument()({'_id': ctx.guild.id}, {'$set': {'ticket.logging': channel.id}})
+
+        # Sending success embed as respond
+        success_embed = utils.embed(title="Done :white_check_mark:",
+                                    description="Ticket log channel has been changed successfully")
+        await ctx.respond(embed=success_embed, ephemeral=True)
 
     # Set the new ticket channels category
     @slash_command(name="set_ticket_category", description="Set new tickets category")
     @commands.has_permissions(kick_members=True)
     async def set_ticket_category(self, ctx: discord.ApplicationContext,
                                   category: Option(discord.CategoryChannel, "Select category")):
-        # Fetching and updating the ticket category
-        config.find_one_and_update({'_id': ctx.guild.id}, {'$set': {'ticket.category': category.id}})
+        # Updating the ticket category
+        self.updateDocument(config, {'_id': ctx.guild.id}, {'ticket.category': category.id})
 
         # Sending success embed as respond
         success_embed = utils.embed(title="Done :white_check_mark:",
                                     description="Ticket category has been changed successfully")
         await ctx.respond(embed=success_embed, ephemeral=True)
 
-    # Set the ticket listing channel
-    @slash_command(name="set_ticket_listing", description="Set ticket log channel")
+    # Set the closed ticket channels category
+    @slash_command(name="set_closed_ticket_category", description="Set new tickets category")
     @commands.has_permissions(kick_members=True)
-    async def set_ticket_listing(self, ctx: discord.ApplicationContext,
-                                 channel: Option(discord.TextChannel, "Select ticket log channel")):
-        # Fetching and updating the ticket log
-        self.updateDocument(config, {'_id': ctx.guild.id}, {'ticket.listing': channel.id})
+    async def set_closed_ticket_category(self, ctx: discord.ApplicationContext,
+                                         category: Option(discord.CategoryChannel, "Select category")):
+        # Fetching and updating the ticket category
+        config.find_one_and_update({'_id': ctx.guild.id}, {'$set': {'ticket.closed': category.id}})
 
         # Sending success embed as respond
         success_embed = utils.embed(title="Done :white_check_mark:",
-                                    description="Ticket listing channel has been changed successfully")
+                                    description="Closed ticket category has been changed successfully")
         await ctx.respond(embed=success_embed, ephemeral=True)
 
-    # Sends the paginated thingy
+    # # Set the ticket listing channel
+    # @slash_command(name="set_ticket_listing", description="Set ticket log channel")
+    # @commands.has_permissions(kick_members=True)
+    # async def set_ticket_listing(self, ctx: discord.ApplicationContext,
+    #                              channel: Option(discord.TextChannel, "Select ticket log channel")):
+    #     # Fetching and updating the ticket log
+    #     self.updateDocument(config, {'_id': ctx.guild.id}, {'ticket.listing': channel.id})
+    #
+    #     # Sending success embed as respond
+    #     success_embed = utils.embed(title="Done :white_check_mark:",
+    #                                 description="Ticket listing channel has been changed successfully")
+    #     await ctx.respond(embed=success_embed, ephemeral=True)
+
+    # Sends the list of all closed tickets
     @slash_command(name="send_paginated_thingy", description="See the paginated thingy")
     @commands.has_permissions(kick_members=True)
     async def send_paginated_thingy(self, ctx: discord.ApplicationContext):
 
         # Fetching all the guild closed tickets
         tickets = [f'<@{ticket["user"]}> | Subject: `{ticket["subject"]}` | Date: `{ticket["date"]}` | ' +
-                   f'ID: `{ticket["_id"]}`' for ticket in active_tickets.find({'guild': ctx.guild.id,
-                                                                               'status': TicketStatuses.CLOSED.value}).sort(
-            "_id", -1)]
+                   f'ID: `{ticket["_id"]}`' for ticket in
+                   active_tickets.find({'guild': ctx.guild.id,
+                                        'status': TicketStatuses.CLOSED.value}).sort("_id", -1)]
 
         if len(tickets) == 0:
             raise utils.CustomError("There is no closed tickets in this guild!")
@@ -179,6 +226,7 @@ class Ticket(commands.Cog):
         paginator = pages.Paginator(pages=list_of_responds_in_10)
         await paginator.respond(ctx.interaction, ephemeral=False)
 
+    # Get the ticket log and stats with ID
     @slash_command(name="get_log", description="Get the selected log")
     @commands.has_permissions(kick_members=True)
     async def get_log(self, ctx: discord.ApplicationContext,
@@ -207,13 +255,20 @@ class Ticket(commands.Cog):
         ticket_date = ticket['date']
         ticket_subject = ticket['subject']
         user = ticket['user']
+        desc = f'Ticket made by: <@!{user}>'
         embed = utils.embed(title=f"Here is the ticket log you asked for",
-                            description=f"Ticket made by: <@!{user}>\nTicket subject: {ticket_subject}" +
-                                        f"\nTicket creation date: {ticket_date}")
+                            description=desc,
+                            color=discord.Color.green())
+        embed.add_field(name="Subject", value=ticket_subject)
+        embed.add_field(name="Creation date", value=ticket_date)
+        if ticket_subject != TicketSubjects.SUPPORT.value:
+            embed.add_field(name="Product", value=f'{ticket["product"]} {ticket["subject"]}')
+            embed.add_field(name="Payment status", value=ticket['payment_status'])
+            embed.add_field(name="Payment method", value=ticket['payment_method'])
 
         await ctx.respond(embed=embed, file=file)
 
-    # As the description says...
+    # Adding support role to the tickets
     @slash_command(name="support-add", description='Adding support role to the tickets')
     @commands.has_permissions(kick_members=True)
     async def support_add(self, ctx: discord.ApplicationContext,
@@ -235,6 +290,7 @@ class Ticket(commands.Cog):
                                     description="Role has successfully added to ticket supports")
         await ctx.respond(embed=success_embed, ephemeral=True)
 
+    # Removing support role from the tickets
     @slash_command(name="support-remove", description='Removing support role from the tickets')
     @commands.has_permissions(kick_members=True)
     async def support_remove(self, ctx: discord.ApplicationContext,
@@ -263,11 +319,9 @@ class Ticket(commands.Cog):
     @slash_command(name="info", description='Get info of the ticket')
     @commands.has_permissions(kick_members=True)
     async def info(self, ctx: discord.ApplicationContext):
-        ticket = active_tickets.find_one({'channel': ctx.channel.id})
-        if not ticket:
-            return
-        if buyingTicketCheck(ctx.channel_id)[0]:
-            raise utils.CustomError("Ticket doesn't have any products")
+        self.checkIsTicket(ctx)
+
+        self.buyingTicketCheck(ctx.channel.id)
 
         await ctx.respond(embed=generateInfo(ctx.channel_id))
 
@@ -275,13 +329,11 @@ class Ticket(commands.Cog):
     @slash_command(name="edit", description='Change product information of ticket')
     @commands.has_permissions(kick_members=True)
     async def edit(self, ctx: discord.ApplicationContext):
-        ticket = active_tickets.find_one({'channel': ctx.channel.id})
-        if not ticket:
-            return
-        if buyingTicketCheck(ctx.channel_id)[0]:
-            raise utils.CustomError("Ticket doesn't have any products")
+        ticket = self.checkIsTicket(ctx)
 
-        await ctx.response.send_modal(modal=createModal(ticket['subject'], ticket)(title="Change product info:"))
+        self.buyingTicketCheck(ctx.channel.id)
+
+        await ctx.response.send_modal(modal=createBuyingModal(ticket['subject'], ticket)(title="Change product info:"))
 
     valid_payment_methods = [discord.OptionChoice(name=name) for i, (name, _) in enumerate(PAYMENT_METHODS.items())]
 
@@ -292,19 +344,21 @@ class Ticket(commands.Cog):
                              paymentmethod: Option(str,
                                                    "Customer's payment method (Required if has not been selected)",
                                                    required=False, choices=valid_payment_methods)):
-        ticket = active_tickets.find_one({'channel': ctx.channel.id})
-        if not ticket:
-            return
+        # Check if this channel is ticket
+        ticket = self.checkIsTicket(ctx)
 
-        if buyingTicketCheck(ctx.channel_id)[0]:
-            raise utils.CustomError("Ticket doesn't have any products")
+        # Check if ticket is for buying stuff
+        self.buyingTicketCheck(ctx.channel.id)
 
+        # Check if ticket has payment method
         if (not ticket.get('payment_method', None)) & (not paymentmethod):
-            raise utils.CustomError("Ticket does not have payment method, you have to select one")
+            raise utils.CustomError("Ticket does not have payment method, you can select one")
 
+        # Check if ticket is paid
         if ticket['payment_status'] == 'Paid':
             raise utils.CustomError("You cannot re-confirm a confirmed ticket")
 
+        # Update ticket to paid and also update paymentmethod if selected
         if paymentmethod:
             self.updateDocument(active_tickets, {'channel': ctx.channel.id}, {'status': TicketStatuses.CONFIRMED.value,
                                                                               'payment_status': 'Paid',
@@ -313,44 +367,53 @@ class Ticket(commands.Cog):
             self.updateDocument(active_tickets, {'channel': ctx.channel.id}, {'status': TicketStatuses.CONFIRMED.value,
                                                                               'payment_status': 'Paid'})
 
-        embed = utils.embed(title="Ticket successfully confirmed!", description="")
+        # Send success message
+        embed = utils.embed(title="Ticket payment successfully confirmed!", description="")
         await ctx.response.send_message(embed=embed, ephemeral=True)
 
+        # Update info message
         message: discord.Message = await ctx.channel.fetch_message(ticket['message'])
         await message.edit(embed=generateInfo(ctx.channel.id))
 
+    # Reset the payment status and status to 'Waiting payment' and 'open'
     @slash_command(name="resetpayment", description='Reset payment status')
     @commands.has_permissions(kick_members=True)
     async def resetpayment(self, ctx: discord.ApplicationContext):
-        ticket = active_tickets.find_one({'channel': ctx.channel.id})
-        if not ticket:
-            return
+        # Check if this is a ticket channel
+        ticket = self.checkIsTicket(ctx)
 
-        if buyingTicketCheck(ctx.channel_id)[0]:
-            raise utils.CustomError("Ticket doesn't have any products")
+        # Check if this is a buying ticket
+        self.buyingTicketCheck(ctx.channel.id)
 
+        # Check if ticket is not in 'CONFIRMED' or 'OPEN' status
         if ticket['status'] not in [TicketStatuses.CONFIRMED.value, TicketStatuses.OPEN.value]:
             raise utils.CustomError("You cannot reset a not confirmed ticket!")
 
+        # Reset the ticket
         self.updateDocument(active_tickets, {'channel': ctx.channel.id}, {'status': TicketStatuses.OPEN.value,
                                                                           'payment_status': 'Waiting payment'})
 
-        message: discord.Message = await ctx.channel.fetch_message(ticket['message'])
-        await message.edit(embed=generateInfo(ctx.channel.id))
-
+        # Send success message
         await ctx.respond(embed=utils.embed(title="Successfully reset the payment status!",
                                             description=''), ephemeral=True)
 
+        # Update info message
+        message: discord.Message = await ctx.channel.fetch_message(ticket['message'])
+        await message.edit(embed=generateInfo(ctx.channel.id))
+
+    # Share ticket with suppliers
     @slash_command(name="shareticket", description='Share ticket in listing channel')
     @commands.has_permissions(kick_members=True)
     async def shareticket(self, ctx: discord.ApplicationContext):
+        # Check is ticket is valid to share
         self.checkShareticket(ctx)
 
+        # Send the embed to check first then share the ticket
         await ctx.respond("**Please confirm the data first!**", embed=generateInfo(ctx.channel_id),
                           view=ShareTicket(self.rate),
                           ephemeral=True)
 
-    # Send the ticket message
+    # Send the ticket lists in ('PAID' AND 'CONFIRMED') or ('CHECKING PAYMENT' AND 'OPEN')
     @slash_command(description="Lists all of the payment in whatever condition")
     @commands.has_permissions(kick_members=True)
     async def payment_list(self, ctx: discord.ApplicationContext,
@@ -358,6 +421,7 @@ class Ticket(commands.Cog):
                                              "The condition of ticket",
                                              choices=[discord.OptionChoice(name="Checking payment"),
                                                       discord.OptionChoice(name="Paid")])):
+        # Fetch the ticket from database based on condition
         tickets = active_tickets.find({'$or': [{'status': TicketStatuses.CONFIRMED.value,
                                                 'guild': ctx.guild.id,
                                                 'payment_status': condition},
@@ -365,6 +429,7 @@ class Ticket(commands.Cog):
                                                 'guild': ctx.guild.id,
                                                 'payment_status': condition}]})
 
+        # Count tickets
         tickets_count = active_tickets.count_documents({'$or': [{'status': TicketStatuses.CONFIRMED.value,
                                                                  'guild': ctx.guild.id,
                                                                  'payment_status': condition},
@@ -372,6 +437,7 @@ class Ticket(commands.Cog):
                                                                  'guild': ctx.guild.id,
                                                                  'payment_status': condition}]})
 
+        # Check if there is any tickets
         if tickets_count == 0:
             raise utils.CustomError("No tickets in this status")
 
@@ -383,6 +449,7 @@ class Ticket(commands.Cog):
             respond_pages = [f"<#{ticket['channel']}> | Check" +
                              f" payment and when confirmed: `/confirmpayment`" for ticket in tickets]
 
+        # Listing tickets in pages of 10
         list_of_responds_in_10 = [utils.embed(title="Payments waiting for actions",
                                               description='\n'.join(respond_pages[i:i + 10])) for i in
                                   range(0, len(respond_pages), 10)]
@@ -391,21 +458,25 @@ class Ticket(commands.Cog):
         # Sending ticket payment list message
         await paginator.respond(ctx.interaction, ephemeral=False)
 
+    # Sends a message asking the user if he got the money
     @slash_command(name="delivered", description='When supplier delivered the ticket')
     @commands.has_permissions(kick_members=True)
     async def delivered(self, ctx: discord.ApplicationContext):
-        ticket = active_tickets.find_one({'channel': ctx.channel.id})
-        if not ticket or ticket['status'] == TicketStatuses.DELIVERED.value:
+        # Check if this is a ticket
+        ticket = self.checkIsTicket(ctx)
+        if ticket['status'] == TicketStatuses.DELIVERED.value:
             return
 
+        # Check if the user is ticket's supplier
         supplier = suppliers.find_one({'guild': ctx.guild.id,
                                        '_id': ctx.user.id})
-        if ticket.get('supplier', None) and (supplier['_id'] != ticket.get('supplier', None)):
+        if ticket.get('supplier', None) and (supplier['user'] != ticket.get('supplier', None)):
             raise utils.CustomError('You are not this ticket\'s supplier!')
 
-        if buyingTicketCheck(ctx.channel.id)[0]:
-            raise utils.CustomError("Ticket doesn't have any products")
+        # Check if ticket is not just support
+        self.buyingTicketCheck(ctx.channel.id)
 
+        # Send the message for user confirmation
         await ctx.respond(ctx.guild.get_member(ticket['user']).mention,
                           embed=utils.embed(
                               title="Did you got your product?",
@@ -414,22 +485,41 @@ class Ticket(commands.Cog):
                           view=Claimed(self.rate.add_ticket)
                           )
 
+    @slash_command(name="remove_supplier", description='Remove supplier from ticket')
+    @commands.has_permissions(kick_members=True)
+    async def remove_supplier(self, ctx: discord.ApplicationContext):
+        ticket = self.checkIsTicket(ctx)
+
+        self.buyingTicketCheck(ctx.channel.id)
+
+        # Check if ticket has supplier
+        if not ticket.get('supplier', None):
+            raise utils.CustomError('This ticket doesnt have any supplier')
+
+        desc = 'Are you sure you want to remove supplier from this ticket?'
+        # Send remove supplier confirmation
+        await ctx.response.send_message(embed=utils.embed(title="Are you sure?", description=desc),
+                                        view=AbandonConfirmation(),
+                                        ephemeral=True)
+
 
 # Bot views
-def createModal(subject, ticket=None):
+
+# Create question form for creating ticket
+def createBuyingModal(subject, ticket=None):
     class BuyModal(Modal):
         def __init__(self, *args, **kwargs) -> None:
             super().__init__(*args, **kwargs)
             # Adding field to modal based on subject
-            if subject == 'coin':
+            if subject == TicketSubjects.COIN.value:
                 self.add_item(InputText(label="Coin amount", placeholder="Example: 100m",
                                         value=ticket['product'] if ticket is not None else None))
 
-            if subject == 'island':
+            if subject == TicketSubjects.ISLAND.value:
                 self.add_item(InputText(label="Island number", placeholder="Example: 87",
                                         value=ticket['product'] if ticket is not None else None))
 
-            if subject == 'minion':
+            if subject == TicketSubjects.MINION.value:
                 self.add_item(InputText(label="Minion:", placeholder="Example: 10x Snow",
                                         value=ticket['product'] if ticket is not None else None))
 
@@ -439,15 +529,17 @@ def createModal(subject, ticket=None):
 
         async def callback(self, interaction: discord.Interaction):
             product = self.children[0].value
-            if subject == 'coin':
+
+            # Get coins from form and send error if format was invalid
+            if subject == TicketSubjects.COIN.value:
                 if not re.match("^[\d.]*[mMbB]$", product):
-                    return await interaction.response.send_message(
-                        embed=utils.embed(title="Invalid amount of coins",
-                                          description="Please follow this format:\n100m\n1b\n1000M"), ephemeral=True)
+                    raise utils.CustomError("Please follow this format:\n100m\n1b\n1000M",
+                                            title="Invalid amount of coins")
 
                 if product.lower().endswith('b'):
                     product = f'{int(float(product[:-1]) * 1000)}m'
 
+            # Check if it is about creating the ticket or just editing it
             if not ticket:
                 await createTicket(interaction,
                                    subject=subject,
@@ -462,6 +554,35 @@ def createModal(subject, ticket=None):
     return BuyModal
 
 
+# Confirmation class for double check
+class AbandonConfirmation(utils.CustomView):
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(timeout=None, *args, **kwargs)
+
+    @discord.ui.button(label="Yes", style=discord.ButtonStyle.green,
+                       custom_id="persistent_view:confirm_abandon")
+    async def yes(self, _, interaction: discord.Interaction) -> None:
+        ticket = Ticket.checkIsTicket(interaction)
+
+        Ticket.buyingTicketCheck(interaction.channel.id)
+
+        supplier = ticket.get('supplier', None)
+
+        # Update supplier if there was one
+        if supplier:
+            Ticket.updateDocument(active_tickets,
+                                  {'channel': interaction.channel.id}, {'supplier': None})
+
+            # Remove supplier from channel
+            await interaction.channel.set_permissions(interaction.guild.get_member(supplier),
+                                                      overwrite=discord.PermissionOverwrite())
+
+        # Send success message
+        await interaction.response.send_message(embed=utils.embed(title="Supplier successfully removed from ticket!",
+                                                                  description=""))
+
+
+# Claimed class for when user has got the product
 class Claimed(utils.CustomView):
     def __init__(self, add_ticket):
         super().__init__(timeout=None)
@@ -470,15 +591,18 @@ class Claimed(utils.CustomView):
     @discord.ui.button(label='Yes, I got it!', style=discord.ButtonStyle.primary,
                        custom_id="persistent_view:claim_ticket")
     async def callback(self, _, interaction: discord.Interaction):
+        # Check if channel is a ticket
         ticket = active_tickets.find_one({'channel': interaction.channel.id})
         if not ticket or ticket['status'] == TicketStatuses.DELIVERED.value:
             return await interaction.message.delete()
 
+        # Check if the supplier is not clicking on the button
         supplier = ticket.get('supplier', None)
         if supplier and interaction.user.id == ticket['supplier'] and ticket['user'] != ticket['supplier'] \
                 and not interaction.user.guild_permissions.kick_members:
             raise utils.CustomError("You cannot mark this ticket as claimed!")
 
+        # Sending the final message
         await interaction.response.send_message(
             embed=utils.embed(
                 title="Transfer successfully completed!",
@@ -499,22 +623,23 @@ class Claimed(utils.CustomView):
             )
         )
 
+        # Update supplier if there was one
         if supplier:
             Ticket.updateDocument(suppliers,
-                                  {'guild': interaction.guild.id, '_id': supplier},
-                                  {'status': 'Available'})
+                                  {'guild': interaction.guild.id, '_id': supplier})
+
+            # Call supplier update method
             self.add_ticket(interaction.guild.get_member(supplier), int(ticket['product'][:-1]))
-            await interaction.channel.set_permissions(interaction.guild.get_member(supplier), read_messages=False,
-                                                      send_messages=False)
+            await interaction.channel.set_permissions(interaction.guild.get_member(supplier)
+                                                      , overwrite=discord.PermissionOverwrite())
 
         Ticket.updateDocument(active_tickets, {'channel': interaction.channel.id},
                               {'status': TicketStatuses.DELIVERED.value})
 
         await interaction.message.delete()
 
-        # Call supplier method
 
-
+# Share ticket with other suppliers
 class ShareTicket(utils.CustomView):
     def __init__(self, rate):
         super().__init__(timeout=None)
@@ -523,29 +648,32 @@ class ShareTicket(utils.CustomView):
     @discord.ui.button(label='Share Ticket', style=discord.ButtonStyle.primary,
                        custom_id="persistent_view:share_ticket")
     async def share(self, _, interaction: discord.Interaction):
+        # Check the ticket
         try:
-            Ticket.checkShareticket(interaction)
+            ticket = Ticket.checkShareticket(interaction)
         except Exception as e:
             raise e
 
-        ticket = active_tickets.find_one({'channel': interaction.channel.id})
+        # Check if ticket is delivered
         if ticket['status'] == TicketStatuses.DELIVERED.value:
             return await interaction.message.delete()
 
+        # Update the ticket status to "LISTED"
         Ticket.updateDocument(active_tickets, {'channel': interaction.channel.id},
                               {'status': TicketStatuses.LISTED.value})
 
-        embed = utils.embed(title="New ticket just got listed!", description="")
-        embed.add_field(name="Product", value=f"{ticket['product']} {ticket['subject']}")
+        # Send success embed
         await interaction.response.send_message(embed=utils.embed(title="Ticket successfully listed!", description=""),
                                                 ephemeral=True)
 
-        # await interaction.message.delete()
+        # Remove supplier from ticket
         role: discord.Role = interaction.guild.get_role(config.find_one({'_id': interaction.guild.id})['supplier'])
         await interaction.channel.set_permissions(
             role,
             overwrite=discord.PermissionOverwrite(send_messages=False, read_messages=True))
 
+        # Sending ticket embed
+        embed = utils.embed(title="New ticket just got listed!", description="**Read the pin!**")
         await interaction.channel.send(embed=embed, view=ClaimTicket(self.rate))
 
     @discord.ui.button(label='Cancel', style=discord.ButtonStyle.secondary,
@@ -554,26 +682,34 @@ class ShareTicket(utils.CustomView):
         await interaction.message.delete()
 
 
+# Supplier manage ticket class
 class Delivered(utils.CustomView):
     def __init__(self, rate):
         super().__init__(timeout=None)
         self.rate = rate
 
+    # Supplier delivered the products to user
     @discord.ui.button(label="Delivered", style=discord.ButtonStyle.primary,
                        custom_id="persistent_view:delivered_ticket")
-    async def callback(self, _, interaction: discord.Interaction):
-        ticket = active_tickets.find_one({'channel': interaction.channel.id})
-        if not ticket or ticket['status'] == TicketStatuses.DELIVERED.value:
+    async def delivered(self, _, interaction: discord.Interaction):
+        # Check if this is a ticket
+        ticket = Ticket.checkIsTicket(interaction)
+        if ticket['status'] == TicketStatuses.DELIVERED.value:
             return
+
+        # Check if ticket has supplier (Nothing is impossible!)
         if not ticket.get('supplier', None):
+            await interaction.message.delete()
             raise utils.CustomError("Wierd! This ticket doesnt have a supplier!")
 
+        # Check if user is the supplier
         if interaction.user.id != ticket['supplier']:
             raise utils.CustomError('You are not this ticket\'s supplier!')
 
-        if buyingTicketCheck(interaction.channel.id)[0]:
-            raise utils.CustomError("Ticket doesn't have any products")
+        # Check if ticket is not supporting one
+        Ticket.buyingTicketCheck(interaction.channel.id)
 
+        # Send the confirmation message
         await interaction.response.send_message(interaction.guild.get_member(ticket['user']).mention,
                                                 embed=utils.embed(
                                                     title="Did you got your product?",
@@ -582,7 +718,37 @@ class Delivered(utils.CustomView):
                                                 view=Claimed(self.rate.add_ticket)
                                                 )
 
+    @discord.ui.button(label="Abandon", style=discord.ButtonStyle.grey,
+                       custom_id="persistent_view:abandon_ticket")
+    async def abandon(self, _, interaction: discord.Interaction):
+        # Check if this is a ticket
+        ticket = Ticket.checkIsTicket(interaction)
+        if ticket['status'] == TicketStatuses.DELIVERED.value:
+            return
 
+        Ticket.buyingTicketCheck(interaction.channel.id)
+
+        # Check if ticket has supplier (Nothing is impossible!)
+        if not ticket.get('supplier', None):
+            await interaction.message.delete()
+            raise utils.CustomError("Wierd! This ticket doesnt have a supplier!")
+
+        # Check if user is the supplier
+        if interaction.user.id != ticket['supplier']:
+            raise utils.CustomError('You are not this ticket\'s supplier!')
+
+        # Check if ticket has supplier
+        if not ticket.get('supplier', None):
+            raise utils.CustomError('This ticket doesnt have any supplier')
+
+        desc = 'Are you sure you want to abandon this ticket?'
+        # Send remove supplier confirmation
+        await interaction.response.send_message(embed=utils.embed(title="Are you sure?", description=desc),
+                                                view=AbandonConfirmation(),
+                                                ephemeral=True)
+
+
+# Supplier claims the ticket
 class ClaimTicket(utils.CustomView):
     def __init__(self, rate):
         super().__init__(timeout=None)
@@ -591,31 +757,43 @@ class ClaimTicket(utils.CustomView):
     @discord.ui.button(label='Claim Ticket', style=discord.ButtonStyle.primary,
                        custom_id="persistent_view:supplier_claim_ticket")
     async def callback(self, _, interaction: discord.Interaction):
+        # Fetch the supplier
         supplier = suppliers.find_one({'guild': interaction.guild.id,
-                                       '_id': interaction.user.id})
+                                       'user': interaction.user.id})
+
+        # Check if its ticket
         ticket = active_tickets.find_one({'channel': interaction.channel.id})
-        print(ticket)
+        if not ticket:
+            return await interaction.message.delete()
+
+        # Check if user is a supplier
         if not supplier:
             raise utils.CustomError("You are not a supplier!")
 
-        if supplier['status'] == 'Busy':
-            raise utils.CustomError("You already have claimed 1 ticket!")
-
+        # Check if ticket already got a supplier or not
         if ticket.get('supplier', None):
             raise utils.CustomError("Ticket already has a supplier!")
 
+        # Check if supplier already claimed 1 ticket or not
+        if active_tickets.count_documents({'guild': interaction.guild.id, 'supplier': supplier['user']}) >= MAX_TICKETS:
+            raise utils.CustomError("You already have claimed 1 ticket!")
+
+        # DO the job if ticket is listed status
         if ticket['status'] == TicketStatuses.LISTED.value:
+            # Set permissions for user
             await interaction.channel.set_permissions(interaction.user, read_messages=True, send_messages=True)
 
+            # Set permissions for supplier role
             await interaction.channel.set_permissions(
                 interaction.guild.get_role(config.find_one({'_id': interaction.guild.id})['supplier']),
-                read_messages=False,
-                send_messages=False)
+                overwrite=discord.PermissionOverwrite())
 
+            # Send the ticket info to supplier
             await interaction.response.send_message(f"{interaction.user.mention}",
                                                     embed=generateInfo(interaction.channel.id),
                                                     ephemeral=True)
 
+            # Sending supplier info along with delivered button for supplier
             embed = utils.embed(title='',
                                 thumbnail=interaction.user.avatar, description='')
             embed.set_author(name=f"{interaction.user.name} Accepted your ticket", icon_url=interaction.user.avatar.url)
@@ -624,11 +802,9 @@ class ClaimTicket(utils.CustomView):
 
             await interaction.message.delete()
 
+            # Update ticket
             Ticket.updateDocument(active_tickets, {'channel': interaction.channel.id}, {'status': 'claimed',
-                                                                                        'supplier': supplier['_id']})
-            Ticket.updateDocument(suppliers,
-                                  {'guild': interaction.guild.id, '_id': interaction.user.id},
-                                  {'status': 'Busy'})
+                                                                                        'supplier': supplier['user']})
 
             await interaction.channel.send(embed=embed, view=Delivered(self.rate))
 
@@ -643,24 +819,27 @@ class TicketMessage(utils.CustomView):
 
     @discord.ui.button(label='Buy coin', style=discord.ButtonStyle.green, row=1, custom_id="persistent_view:buy_coin")
     async def buy_coin_callback(self, _, interaction):
-        await interaction.response.send_modal(createModal('coin')(title="Coin purchase form"))
+        await interaction.response.send_modal(createBuyingModal(TicketSubjects.COIN.value)(title="Coin purchase form"))
 
     @discord.ui.button(label='Buy island', style=discord.ButtonStyle.green, row=1,
                        custom_id="persistent_view:buy_island")
     async def buy_island_callback(self, _, interaction):
-        await interaction.response.send_modal(createModal('island')(title="Island purchase form"))
+        await interaction.response.send_modal(
+            createBuyingModal(TicketSubjects.ISLAND.value)(title="Island purchase form"))
 
     @discord.ui.button(label='Buy minion', style=discord.ButtonStyle.green, row=2,
                        custom_id="persistent_view:buy_minion")
     async def buy_minion_callback(self, _, interaction):
-        await interaction.response.send_modal(createModal('minion')(title="Minion purchase form"))
+        await interaction.response.send_modal(
+            createBuyingModal(TicketSubjects.MINION.value)(title="Minion purchase form"))
 
     @discord.ui.button(label='Need support', style=discord.ButtonStyle.secondary, row=2,
                        custom_id="persistent_view:need_support")
     async def support_callback(self, _, interaction):
-        await createTicket(interaction, subject='Support')
+        await createTicket(interaction, subject=TicketSubjects.SUPPORT.value)
 
 
+# Set ticket payment method
 class SelectPaymentMethodDropDown(discord.ui.Select):
     def __init__(self):
         options = [discord.SelectOption(label=label, description=description) for i, (label, description) in
@@ -674,18 +853,25 @@ class SelectPaymentMethodDropDown(discord.ui.Select):
                          )
 
     async def callback(self, interaction: discord.Interaction):
+        # Check if it is a ticket
         ticket = active_tickets.find_one({'channel': interaction.channel.id})
-        if ticket and \
-                (ticket.get('payment_status', None) != "Waiting payment" or ticket['user'] != interaction.user.id):
+        if not ticket:
+            return
+
+        # Check if it is the user changing the ticket payment method
+        if ticket.get('payment_status', None) != "Waiting payment" or ticket['user'] != interaction.user.id:
             raise utils.CustomError("You cannot change payment method!")
 
+        # Update the ticket method
         Ticket.updateDocument(active_tickets,
                               {'channel': interaction.channel.id},
                               {'payment_method': self.values[0]})
 
+        # Update the info message
         message: discord.Message = await interaction.channel.fetch_message(ticket['message'])
         await message.edit(embed=generateInfo(interaction.channel.id))
 
+        # Send response
         await interaction.response.send_message(
             f"{interaction.user.mention}",
             embed=utils.embed(
@@ -702,48 +888,62 @@ class SelectPaymentMethod(utils.CustomView):
         self.add_item(SelectPaymentMethodDropDown())
 
 
+# User paid the money
 class ConfirmPayment(utils.CustomView):
     def __init__(self):
         super().__init__(timeout=None)
 
     @discord.ui.button(label="I paid", style=discord.ButtonStyle.primary, custom_id="persistent_view:confirm_payment")
     async def callback(self, _, interaction: discord.Interaction):
+        # Check if it is a ticket
         ticket = active_tickets.find_one({'channel': interaction.channel.id})
-        if ticket and ticket.get('payment_status', None) != 'Waiting payment':
+        if not ticket:
+            return await interaction.message.delete()
+
+        # Check if ticket is in Waiting payment state
+        if ticket.get('payment_status', None) != 'Waiting payment':
             raise utils.CustomError("You cannot confirm payment now!")
 
+        # Check if it is the user clicking on the button
         if ticket['user'] != interaction.user.id:
             raise utils.CustomError("You cannot click on I paid!")
 
+        # Update the ticket
         Ticket.updateDocument(active_tickets,
                               {'channel': interaction.channel.id},
                               {'payment_status': 'Checking payment'})
 
+        # Send success message
         await interaction.response.send_message(
             embed=utils.embed(title="Successfully done :white_check_mark: ",
                               description="Thank you for your payment, please be patient, Staff team will soon" +
-                                          " respond.\n"))
+                                          " respond.\n"), ephemeral=True)
 
+        # Update ticket info message
         message: discord.Message = await interaction.channel.fetch_message(ticket['message'])
         await message.edit(embed=generateInfo(interaction.channel.id))
 
 
+# Close ticket (Only admin can select)
 class ManageTicket(utils.CustomView):
     def __init__(self):
         super().__init__(timeout=None)
 
     @discord.ui.button(label='Close ticket', style=discord.ButtonStyle.red, custom_id="persistent_view:manage_ticket")
     async def callback(self, _, interaction: discord.Interaction):
+        # Check if user is an admin
         if not interaction.user.guild_permissions.kick_members:
             raise utils.CustomError('You dont have permission to use this button')
 
+        # Check if ticket is complete
         ticket = active_tickets.find_one({'channel': interaction.channel.id})
 
-        if ticket and ticket.get('payment_status'):
+        if ticket and ticket.get('payment_status', None):
             if (ticket['payment_status'] == 'Paid' or ticket['payment_status'] == 'Checking payment') and \
                     ticket['status'] != TicketStatuses.DELIVERED.value:
                 raise utils.CustomError("You cannot do that since its Paid and not Delivered!")
 
+        # Send close ticket request
         embed = utils.embed(
             title="",
             description=f"""Hello {interaction.guild.get_member(ticket['user']).mention if ticket else ''}
@@ -756,22 +956,23 @@ class ManageTicket(utils.CustomView):
         await interaction.response.send_message(embed=embed, view=CloseTicket())
 
 
+# Close ticket option
 class CloseTicket(utils.CustomView):
     def __init__(self):
         super().__init__(timeout=None)
 
     @discord.ui.button(label='✔ Close', style=discord.ButtonStyle.red, custom_id="persistent_view:close_ticket")
-    async def yes(self, _, interaction):
+    async def yes(self, _, interaction: discord.Interaction):
         # transcript_file = discord.File(fp=BytesIO(bytes(transcript[222::], encoding="utf-8")),
         #                                filename=f"{interaction.channel.name}.html")
 
         # Fetching the user with active ticket, so we change the satus to closed
-        user = active_tickets.find_one({'channel': interaction.channel.id,
-                                        'status': {'$ne': TicketStatuses.CLOSED.value}})
+        ticket = active_tickets.find_one({'channel': interaction.channel.id,
+                                          'status': {'$ne': TicketStatuses.CLOSED.value}})
 
         # Setting the permission for the fetched user
-        if user:
-            fetched_user = interaction.guild.get_member(user['user'])
+        if ticket:
+            fetched_user = await interaction.guild.fetch_member(ticket['user'])
             await interaction.channel.set_permissions(fetched_user,
                                                       overwrite=discord.PermissionOverwrite(read_messages=False))
 
@@ -780,11 +981,14 @@ class CloseTicket(utils.CustomView):
         await interaction.response.send_message(embed=embed, view=DeleteTicket())
 
         # If there is no user that means ticket is already close, so we just send the delete option
-        if user is None:
+        if ticket is None:
             return
 
         # Fetching the log channel from database
         logging_channel = config.find_one({'_id': interaction.guild.id}).get('ticket').get('logging', None)
+
+        # Fetching the closed ticket category from database
+        closed_channel = config.find_one({'_id': interaction.guild.id}).get('ticket').get('closed', 0)
 
         # Getting channel history
         messages = await interaction.channel.history().flatten()
@@ -803,6 +1007,8 @@ class CloseTicket(utils.CustomView):
                               {'channel': interaction.channel.id, 'status': {'$ne': TicketStatuses.CLOSED.value}},
                               {'status': TicketStatuses.CLOSED.value, 'log': numbers, 'html_log': transcript[222::]})
 
+        await interaction.channel.edit(category=interaction.guild.get_channel(closed_channel))
+
         # If there is a log channel set, send the log to that channel
         if logging_channel:
 
@@ -816,8 +1022,8 @@ class CloseTicket(utils.CustomView):
             else:
                 embed = utils.embed(title=f"{interaction.channel.name}",
                                     description=f"Ticket was closed. Log is above." +
-                                                (f"\n**Buyer IGN**: {user['ign']}\n**Product**: {user['product']}"
-                                                 if user.get('product', None) else ''))
+                                                (f"\n**Buyer IGN**: {ticket['ign']}\n**Product**: {ticket['product']}"
+                                                 if ticket.get('product', None) else ''))
             await channel.send(embed=embed, file=file)
 
     @discord.ui.button(label='❌ Cancel', style=discord.ButtonStyle.secondary,
@@ -839,16 +1045,6 @@ class DeleteTicket(utils.CustomView):
 
 
 # Methods
-
-
-def buyingTicketCheck(channel_id):
-    ticket = active_tickets.find_one({'channel': channel_id})
-    if not ticket.get('product', None):
-        embed = utils.embed(title="Error!", description='')
-        embed.description = "It appears there is no specific info about this ticket"
-        return True, embed
-    return False, ''
-
 
 # Generate info for product tickets
 def generateInfo(channel_id) -> discord.Embed:
@@ -908,7 +1104,7 @@ def submitData(channel_id, product) -> None:
                           {'payment_status': 'Waiting payment', 'product': product[1]})
 
 
-async def createTicket(interaction, ign=None, product=None, subject="Support") -> None:
+async def createTicket(interaction, ign=None, product=None, subject=TicketSubjects.SUPPORT.value) -> None:
     # Trying to find a document where user has an active ticket,
     # so we don't create multiple tickets for one user in a guild
     user_ticket = active_tickets.find_one({'guild': interaction.guild.id,

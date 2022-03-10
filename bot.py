@@ -6,10 +6,10 @@ from discord.ext import commands
 
 import utils
 
-TOKEN = "ODU5MTk2MjY5NDY4ODQ0MDUy.YNpK4Q.isM_Wz2FCccxNajWXPUC05SG_L8"
+TOKEN = "OTM5MTcyMjgyNzcxODQ5MjY3.Yf0-WQ.rzul9e3rEErensGT22JmnFcF45U"
 
 # List of "Guilds"
-GUILDS = [859201687264690206, 945903743319293992] # Put in here
+GUILDS = [859201687264690206] # Put in here
 
 logger = logging.getLogger('discord')
 logger.setLevel(logging.INFO)
@@ -92,6 +92,11 @@ async def on_application_command_error(ctx, error):
                                   description="You are missing one or more required permissions to use this command.",
                                   thumbnail=utils.Image.ERROR.value,
                                   color=discord.Color.red())
+        await ctx.respond(embed=error_embed, ephemeral=True)
+    elif isinstance(error.original, utils.CustomError):
+        error_embed = utils.embed(title=error.original.title,
+                                  description=error.original.message,
+                                  color=error.original.color)
         await ctx.respond(embed=error_embed, ephemeral=True)
     else:
         error_embed = utils.embed(title=":x: Unexpected Error :x:",

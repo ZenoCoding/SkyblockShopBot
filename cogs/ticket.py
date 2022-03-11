@@ -6,25 +6,19 @@ from io import BytesIO
 import chat_exporter
 import discord
 from bson.objectid import ObjectId
-from discord.commands import Option
-from discord.commands import slash_command
+from discord.commands import Option, slash_command, SlashCommandGroup
 from discord.ext import commands, pages
 from discord.ui import Modal, InputText
 from pymongo import ReturnDocument, collection
 
 import utils
 
-# sys.tracebacklimit = 0
 
 active_tickets = utils.db.tickets
 suppliers = utils.db.suppliers
 config = utils.db.config
 
 active_tickets.delete_many({})
-
-# suppliers.update_one({'guild': 859201687264690206,
-#                       '_id': 535388059634499587},
-#                      {'$set': {'status': 'Available'}})
 
 # Ticket constants
 MAX_TICKETS = 1
@@ -136,12 +130,11 @@ class Ticket(commands.Cog):
         self.bot.add_view(Delivered(self.rate))
         self.bot.add_view(Claimed(self.rate.add_ticket))
 
-    # @commands.Cog.listener()
-    # async def on_message(self, message):
-    #     await askQuestion(message)
+    ticket = SlashCommandGroup("ticket", description="Manges all things tickets.")
+    config = ticket.create_subgroup(name="config", description="Configureates ticket settings.")
 
     # Send the ticket message so user can create ticket
-    @slash_command(name="send_ticket_message", description="Send the support message")
+    @ticket.command(name="send_msg", description="Send the message for users to create tickets")
     @commands.has_permissions(kick_members=True)
     async def send_ticket_message(self, ctx: discord.ApplicationContext,
                                   channel: Option(discord.TextChannel, "Select ticket channel")):
@@ -154,12 +147,12 @@ class Ticket(commands.Cog):
         await ctx.respond(embed=success_embed, ephemeral=True)
 
     # Set the ticket log channel
-    @slash_command(name="set_ticket_log", description="Set ticket log channel")
+    @config.command(name="logging", description="Set ticket log channel")
     @commands.has_permissions(kick_members=True)
-    async def set_ticket_log(self, ctx: discord.ApplicationContext,
+    async def set_log_channel(self, ctx: discord.ApplicationContext,
                              channel: Option(discord.TextChannel, "Select ticket log channel")):
         # Fetching and updating the ticket log
-        self.updateDocument()({'_id': ctx.guild.id}, {'$set': {'ticket.logging': channel.id}})
+        self.updateDocument(config, {'_id': ctx.guild.id}, {'ticket.logging': channel.id})
 
         # Sending success embed as respond
         success_embed = utils.embed(title="Done :white_check_mark:",
@@ -167,7 +160,7 @@ class Ticket(commands.Cog):
         await ctx.respond(embed=success_embed, ephemeral=True)
 
     # Set the new ticket channels category
-    @slash_command(name="set_ticket_category", description="Set new tickets category")
+    @config.command(name="category", description="Set new tickets category")
     @commands.has_permissions(kick_members=True)
     async def set_ticket_category(self, ctx: discord.ApplicationContext,
                                   category: Option(discord.CategoryChannel, "Select category")):
@@ -180,7 +173,7 @@ class Ticket(commands.Cog):
         await ctx.respond(embed=success_embed, ephemeral=True)
 
     # Set the closed ticket channels category
-    @slash_command(name="set_closed_ticket_category", description="Set new tickets category")
+    @config.command(name="closed_category", description="Set new tickets category")
     @commands.has_permissions(kick_members=True)
     async def set_closed_ticket_category(self, ctx: discord.ApplicationContext,
                                          category: Option(discord.CategoryChannel, "Select category")):
@@ -192,23 +185,10 @@ class Ticket(commands.Cog):
                                     description="Closed ticket category has been changed successfully")
         await ctx.respond(embed=success_embed, ephemeral=True)
 
-    # # Set the ticket listing channel
-    # @slash_command(name="set_ticket_listing", description="Set ticket log channel")
-    # @commands.has_permissions(kick_members=True)
-    # async def set_ticket_listing(self, ctx: discord.ApplicationContext,
-    #                              channel: Option(discord.TextChannel, "Select ticket log channel")):
-    #     # Fetching and updating the ticket log
-    #     self.updateDocument(config, {'_id': ctx.guild.id}, {'ticket.listing': channel.id})
-    #
-    #     # Sending success embed as respond
-    #     success_embed = utils.embed(title="Done :white_check_mark:",
-    #                                 description="Ticket listing channel has been changed successfully")
-    #     await ctx.respond(embed=success_embed, ephemeral=True)
-
     # Sends the list of all closed tickets
-    @slash_command(name="send_paginated_thingy", description="See the paginated thingy")
+    @ticket.command(name="list", description="See the paginated thingy")
     @commands.has_permissions(kick_members=True)
-    async def send_paginated_thingy(self, ctx: discord.ApplicationContext):
+    async def list_tickets(self, ctx: discord.ApplicationContext):
 
         # Fetching all the guild closed tickets
         tickets = [f'<@{ticket["user"]}> | Subject: `{ticket["subject"]}` | Date: `{ticket["date"]}` | ' +
@@ -227,9 +207,9 @@ class Ticket(commands.Cog):
         await paginator.respond(ctx.interaction, ephemeral=False)
 
     # Get the ticket log and stats with ID
-    @slash_command(name="get_log", description="Get the selected log")
+    @ticket.command(name="log", description="Get the selected log")
     @commands.has_permissions(kick_members=True)
-    async def get_log(self, ctx: discord.ApplicationContext,
+    async def get_ticket_log(self, ctx: discord.ApplicationContext,
                       ticket_id: Option(str, "Enter ticket id")):
         # Checking if ticket id is correct
         try:
@@ -269,9 +249,9 @@ class Ticket(commands.Cog):
         await ctx.respond(embed=embed, file=file)
 
     # Adding support role to the tickets
-    @slash_command(name="support-add", description='Adding support role to the tickets')
+    @ticket.command(name="support-add", description='Adding support role (roles that can view tickets)')
     @commands.has_permissions(kick_members=True)
-    async def support_add(self, ctx: discord.ApplicationContext,
+    async def ticket_support_role_add(self, ctx: discord.ApplicationContext,
                           role: Option(discord.Role, "Select new support role")):
         # Fetching guild supports
         supports = config.find_one({'_id': ctx.guild.id})['supports']
@@ -291,7 +271,7 @@ class Ticket(commands.Cog):
         await ctx.respond(embed=success_embed, ephemeral=True)
 
     # Removing support role from the tickets
-    @slash_command(name="support-remove", description='Removing support role from the tickets')
+    @ticket.command(name="support-remove", description='Removing support role from the tickets')
     @commands.has_permissions(kick_members=True)
     async def support_remove(self, ctx: discord.ApplicationContext,
                              role: Option(discord.Role, "Select new support role")):
@@ -316,9 +296,9 @@ class Ticket(commands.Cog):
         await ctx.respond(embed=success_embed, ephemeral=True)
 
     # Get ticket info (If it is about products)
-    @slash_command(name="info", description='Get info of the ticket')
+    @ticket.command(name="info", description='Get info of the ticket')
     @commands.has_permissions(kick_members=True)
-    async def info(self, ctx: discord.ApplicationContext):
+    async def get_internal_ticket_info(self, ctx: discord.ApplicationContext):
         self.checkIsTicket(ctx)
 
         self.buyingTicketCheck(ctx.channel.id)
@@ -326,9 +306,9 @@ class Ticket(commands.Cog):
         await ctx.respond(embed=generateInfo(ctx.channel_id))
 
     # Edit ticket info (If it is about products)
-    @slash_command(name="edit", description='Change product information of ticket')
+    @ticket.command(name="edit", description='Change product information of ticket')
     @commands.has_permissions(kick_members=True)
-    async def edit(self, ctx: discord.ApplicationContext):
+    async def edit_internal_ticket_info(self, ctx: discord.ApplicationContext):
         ticket = self.checkIsTicket(ctx)
 
         self.buyingTicketCheck(ctx.channel.id)
@@ -338,9 +318,9 @@ class Ticket(commands.Cog):
     valid_payment_methods = [discord.OptionChoice(name=name) for i, (name, _) in enumerate(PAYMENT_METHODS.items())]
 
     # Confirm ticket info and set it as paid (If it is about products)
-    @slash_command(name="confirmpayment", description='Confirm the ticket for the listing')
+    @ticket.command(name="payment-confirm", description='Confirms that the user has paid in the ticket')
     @commands.has_permissions(kick_members=True)
-    async def confirmpayment(self, ctx: discord.ApplicationContext,
+    async def admin_confirm_user_paid(self, ctx: discord.ApplicationContext,
                              paymentmethod: Option(str,
                                                    "Customer's payment method (Required if has not been selected)",
                                                    required=False, choices=valid_payment_methods)):
@@ -376,9 +356,9 @@ class Ticket(commands.Cog):
         await message.edit(embed=generateInfo(ctx.channel.id))
 
     # Reset the payment status and status to 'Waiting payment' and 'open'
-    @slash_command(name="resetpayment", description='Reset payment status')
+    @ticket.command(name="payment-reset", description='Reset payment status of the current ticket to unpaid')
     @commands.has_permissions(kick_members=True)
-    async def resetpayment(self, ctx: discord.ApplicationContext):
+    async def admin_reset_user_paid(self, ctx: discord.ApplicationContext):
         # Check if this is a ticket channel
         ticket = self.checkIsTicket(ctx)
 
@@ -402,9 +382,9 @@ class Ticket(commands.Cog):
         await message.edit(embed=generateInfo(ctx.channel.id))
 
     # Share ticket with suppliers
-    @slash_command(name="shareticket", description='Share ticket in listing channel')
+    @ticket.command(name="share", description='Share ticket in listing channel')
     @commands.has_permissions(kick_members=True)
-    async def shareticket(self, ctx: discord.ApplicationContext):
+    async def ticket_supplier_show(self, ctx: discord.ApplicationContext):
         # Check is ticket is valid to share
         self.checkShareticket(ctx)
 
@@ -414,9 +394,9 @@ class Ticket(commands.Cog):
                           ephemeral=True)
 
     # Send the ticket lists in ('PAID' AND 'CONFIRMED') or ('CHECKING PAYMENT' AND 'OPEN')
-    @slash_command(description="Lists all of the payment in whatever condition")
+    @ticket.command(name="find", description="Lists all of the payment in a specified condition")
     @commands.has_permissions(kick_members=True)
-    async def payment_list(self, ctx: discord.ApplicationContext,
+    async def payment_list_condition(self, ctx: discord.ApplicationContext,
                            condition: Option(str,
                                              "The condition of ticket",
                                              choices=[discord.OptionChoice(name="Checking payment"),
@@ -459,9 +439,9 @@ class Ticket(commands.Cog):
         await paginator.respond(ctx.interaction, ephemeral=False)
 
     # Sends a message asking the user if he got the money
-    @slash_command(name="delivered", description='When supplier delivered the ticket')
+    @ticket.command(name="delivered", description='When supplier delivered the ticket')
     @commands.has_permissions(kick_members=True)
-    async def delivered(self, ctx: discord.ApplicationContext):
+    async def supplier_mark_delivered(self, ctx: discord.ApplicationContext):
         # Check if this is a ticket
         ticket = self.checkIsTicket(ctx)
         if ticket['status'] == TicketStatuses.DELIVERED.value:
@@ -485,7 +465,7 @@ class Ticket(commands.Cog):
                           view=Claimed(self.rate.add_ticket)
                           )
 
-    @slash_command(name="remove_supplier", description='Remove supplier from ticket')
+    @ticket.command(name="remove-supplier", description='Remove supplier from current ticket')
     @commands.has_permissions(kick_members=True)
     async def remove_supplier(self, ctx: discord.ApplicationContext):
         ticket = self.checkIsTicket(ctx)

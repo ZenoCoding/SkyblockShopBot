@@ -130,8 +130,8 @@ class Ticket(commands.Cog):
         self.bot.add_view(Delivered(self.rate))
         self.bot.add_view(Claimed(self.rate.add_ticket))
 
-    ticket = SlashCommandGroup("ticket", description="Manges all things tickets.")
-    config = ticket.create_subgroup(name="config", description="Configureates ticket settings.")
+    ticket = SlashCommandGroup("ticket", "Manges all things tickets.")
+    config = ticket.create_subgroup("config", "Configurates ticket settings.")
 
     # Send the ticket message so user can create ticket
     @ticket.command(name="send_msg", description="Send the message for users to create tickets")

@@ -1,7 +1,16 @@
-<<<<<<< Updated upstream
-# DiscordBot
- A discord bot to manage and host a online discord shop.
-=======
-# discordBot
- A generic discord bot that can be easily adapted to different uses, this project is stil in BETA testing and the code will not function.
->>>>>>> Stashed changes
+# SkyblockShopBot
+
+This is a project for managing an online discord shop, which features many features. This github is **private, and will
+remain this way.**
+
+Main Features:
+
+- Advanced Slash Commands and Discord UI
+- Ticket System
+- Rate/Supplier System to sell and buy items
+- Price Calculate which supports different currencies
+- And more!
+
+Planned Features:
+
+- dunno yetlol

@@ -6,10 +6,10 @@ from discord.ext import commands
 
 import utils
 
-TOKEN = "OTM5MTcyMjgyNzcxODQ5MjY3.Yf0-WQ.rzul9e3rEErensGT22JmnFcF45U"
+TOKEN = "ODU5MTk2MjY5NDY4ODQ0MDUy.YNpK4Q.OtqYtlBu_YhPhelVg42Ym1MZI3U"
 
 # List of "Guilds"
-GUILDS = [859201687264690206] # Put in here
+GUILDS = [859201687264690206, 952063174943858739]  # Put in here
 
 logger = logging.getLogger('discord')
 logger.setLevel(logging.INFO)
@@ -80,14 +80,14 @@ async def on_application_command_error(ctx, error):
         await ctx.respond(embed=fix_embed)
         return
 
-    if isinstance(error, commands.CommandNotFound):
+    if isinstance(error.original, commands.CommandNotFound):
         error_embed = utils.embed(title=":x: Unknown Command :x:",
                                   description="This isn't a valid command! Try /help for help..",
                                   thumbnail=utils.Image.ERROR.value,
                                   color=discord.Color.red())
         await ctx.respond(embed=error_embed, ephemeral=True)
         return
-    elif isinstance(error, commands.errors.MissingPermissions):
+    elif isinstance(error.original, commands.errors.MissingPermissions):
         error_embed = utils.embed(title=":x: Missing Permissions :x:",
                                   description="You are missing one or more required permissions to use this command.",
                                   thumbnail=utils.Image.ERROR.value,
@@ -106,7 +106,7 @@ async def on_application_command_error(ctx, error):
                                   color=discord.Color.red())
         await ctx.respond(embed=error_embed, ephemeral=True)
         logging.error("An unexpected error occurred, logging to console.\n")
-        raise error
+        raise error.origional
 
 
 for filename in os.listdir("./cogs"):

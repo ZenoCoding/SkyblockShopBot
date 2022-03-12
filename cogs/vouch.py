@@ -149,7 +149,7 @@ class Vouch(commands.Cog):
     @slash_command(description="Restore vouches to the vouch channel.")
     @has_permissions(administrator=True)
     async def restore_vouches(self, ctx: discord.ApplicationContext):
-        vouch_channel = ctx.guild.get_channel(config.find_one({"_id": ctx.guild.id}))
+        vouch_channel = ctx.guild.get_channel(config.find_one({"_id": ctx.guild.id})['vouch'])
         if vouch_channel is None:
             error_embed = utils.embed(title=":x: Error :x:",
                                       description=f"**There is no vouch channel set in this server! Use "
@@ -183,24 +183,25 @@ class Vouch(commands.Cog):
 
         # If there are...
         for vouch in vouches.find({}):
+
             try:
                 vouch_embed = utils.embed(title=f"Vouch!", color=discord.Color.blue(),
                                           description=f"{vouch['author']['user'][-5:]} rated us {vouch['score']}.",
-                                          timestamp=datetime.datetime.fromisoformat(vouch['timestamp'],
-                                                                                    footer=f"Sent By {vouch['author']['user']}",
-                                                                                    footer_icon=vouch['author'][
-                                                                                        'avatar']))
+                                          timestamp=datetime.datetime.fromisoformat(vouch['timestamp']),
+                                          footer=f"Sent By {vouch['author']['user']}",
+                                          footer_icon=vouch['author'][
+                                            'avatar'])
                 vouch_embed.add_field(name=f"{vouch['rating']}", value=f"\u200b")
                 await vouch_channel.send(embed=vouch_embed)
             except Exception:
-                logging.warning(f"Error occurred when restoring vouch. id:`#{vouches.index(vouch)}`")
+                logging.warning(f"Error occurred when restoring vouch. id:`#{vouch['_id']}`")
                 failed += 1
                 continue
 
         await vouch_channel.edit(name=f"vouches-{vouches.count_documents({})}")
 
         success_embed = utils.embed(title="Restoration Completed :white_check_mark:",
-                                    description=f"**Restoration completed in <#{vouch_channel.id}>.**\n*{failed} vouches failed to be restored. {len(vouches)} succeeded. {100 - (failed / len(vouches)) * 100}% success rate.*",
+                                    description=f"**Restoration completed in <#{vouch_channel.id}>.**\n*{failed} vouches failed to be restored. {vouches.count_documents({})} succeeded. {100 - (failed / vouches.count_documents({})) * 100}% success rate.*",
                                     color=discord.Color.green(),
                                     thumbnail=utils.Image.CALENDAR.value)
         await ctx.respond(embed=success_embed)
@@ -210,7 +211,7 @@ class Vouch(commands.Cog):
         with open("vouches.json", "r") as f:
             data = json.load(f)
 
-        if len(data["vouches"]):
+        if len(data["vouch"]) == 0:
             error_embed = utils.embed(title=":x: Error :x:",
                                       description=f"**Oops! It looks like there are no vouches to convert!**",
                                       color=discord.Color.red(),
@@ -220,7 +221,7 @@ class Vouch(commands.Cog):
 
         failed = 0
 
-        for vouch in data["vouches"]:
+        for vouch in data["vouch"]:
             try:
                 vouches.insert_one(vouch)
             except Exception:
@@ -229,9 +230,9 @@ class Vouch(commands.Cog):
                 continue
 
         success_embed = utils.embed(title="Conversion Completed :white_check_mark:",
-                                    description=f"**Converted {len(data['vouches']) - failed}."
+                                    description=f"**Converted {len(data['vouch']) - failed} vouches."
                                                 f" **\n*{failed} vouches failed to be converted."
-                                                f" {100 - (failed / len(vouches)) * 100}% success rate.*",
+                                                f" {100 - (failed / vouches.count_documents({})) * 100}% success rate.*",
                                     color=discord.Color.green(),
                                     thumbnail=utils.Image.CALENDAR.value)
         await ctx.respond(embed=success_embed)

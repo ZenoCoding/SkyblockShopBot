@@ -106,7 +106,7 @@ async def on_application_command_error(ctx, error):
                                   color=discord.Color.red())
         await ctx.respond(embed=error_embed, ephemeral=True)
         logging.error("An unexpected error occurred, logging to console.\n")
-        raise error.origional
+        raise error.original
 
 
 for filename in os.listdir("./cogs"):

@@ -17,7 +17,7 @@ active_tickets = utils.db.tickets
 suppliers = utils.db.suppliers
 config = utils.db.config
 
-active_tickets.delete_many({})
+# active_tickets.delete_many({})
 
 # Ticket constants
 MAX_TICKETS = 1
@@ -32,6 +32,7 @@ TICKET_CREATION_MESSAGE_EMBED = utils.embed(title='', description='')
 class TicketStatuses(Enum):
     OPEN = 'Open'
     CONFIRMED = 'Confirmed'
+    CLAIMED = 'Claimed'
     LISTED = 'Listed'
     DELIVERED = 'Delivered'
     CLOSED = 'Closed'
@@ -68,8 +69,9 @@ class Ticket(commands.Cog):
 
     # Replaces the collection.update_one and return the document after update
     @staticmethod
-    def updateDocument(col: collection, update_query: dict, updated_fields: dict):
-        return col.find_one_and_update(update_query, {'$set': updated_fields}, return_document=ReturnDocument.AFTER)
+    def updateDocument(col: collection, update_query: dict, updated_fields: dict, change_case: str = '$set'):
+        return col.find_one_and_update(update_query, {change_case: updated_fields},
+                                       return_document=ReturnDocument.AFTER)
 
     # Check if the channel is a ticket
     @staticmethod
@@ -496,7 +498,8 @@ class Ticket(commands.Cog):
         self.buyingTicketCheck(ctx.channel.id)
 
         # Send the message for user confirmation
-        await ctx.respond(ctx.guild.get_member(ticket['user']).mention,
+        user = ctx.guild.get_member(ticket['user'])
+        await ctx.respond(user.mention if user else '',
                           embed=utils.embed(
                               title="Did you got your product?",
                               description="If you did please press the button below to proceed"
@@ -544,6 +547,59 @@ class Ticket(commands.Cog):
     @commands.has_permissions(administrator=True)
     async def close_ticket(self, ctx: discord.ApplicationContext):
         await closeTicket(ctx.interaction)
+
+    # Add a user to ticket
+    @ticket.command(name="user-add", description='Add a user to ticket')
+    @commands.has_permissions(kick_members=True)
+    async def add_user(self, ctx: discord.ApplicationContext,
+                       user: Option(discord.User, "User you want to add")):
+        # Check if is a ticket
+        ticket = self.checkIsTicket(ctx)
+
+        # Check if ticket is not closed
+        if ticket['status'] == TicketStatuses.CLOSED.value:
+            raise utils.CustomError("Ticket is closed! You cannot add a new member")
+
+        # Check if ticket has supplier
+        if ticket['status'] == TicketStatuses.CLAIMED.value and ticket['supplier'] == user.id:
+            raise utils.CustomError('You cannot add a supplier to ticket when the supplier already accepted the ticket')
+
+        # Add user to ticket + update the db
+        await ctx.channel.set_permissions(user,
+                                          overwrite=discord.PermissionOverwrite(read_messages=True, send_messages=True))
+        if user.id not in ticket['extra_users']:
+            Ticket.updateDocument(active_tickets, {'channel': ctx.channel.id}, {'extra_users': user.id}, '$push')
+
+        # Send successful response
+        await ctx.respond(embed=utils.embed(title='',
+                                            description=f'{user.mention} successfully added to {ctx.channel.mention}'))
+
+    # Remove a user from ticket
+    @ticket.command(name="user-remove", description='Remove a user from ticket')
+    @commands.has_permissions(kick_members=True)
+    async def remove_user(self, ctx: discord.ApplicationContext,
+                          user: Option(discord.User, "User you want to remove")):
+        # Check if is a ticket
+        ticket = self.checkIsTicket(ctx)
+
+        # Check if ticket is not closed
+        if ticket['status'] == TicketStatuses.CLOSED.value:
+            raise utils.CustomError("Ticket is closed! You cannot remove a member")
+
+        # Check if user is in extra-users
+        if user.id not in ticket['extra_users']:
+            raise utils.CustomError("This user is not in extra-users")
+
+        # Remove user from ticket + update the db
+
+        if not (ticket['status'] == TicketStatuses.CLAIMED.value and ticket['supplier'] == user.id):
+            await ctx.channel.set_permissions(user,
+                                              overwrite=discord.PermissionOverwrite())
+        Ticket.updateDocument(active_tickets, {'channel': ctx.channel.id}, {'extra_users': user.id}, '$pull')
+
+        # Send successful response
+        await ctx.respond(embed=utils.embed(title='',
+                                            description=f'{user.mention} removed from {ctx.channel.mention}'))
 
 
 # Bot views
@@ -609,7 +665,7 @@ class AbandonConfirmation(utils.CustomView):
 
         Ticket.buyingTicketCheck(interaction.channel.id)
 
-        supplier = ticket.get('supplier', None)
+        supplier = interaction.guild.get_member(ticket['supplier'])
 
         # Update supplier if there was one
         if supplier:
@@ -617,7 +673,7 @@ class AbandonConfirmation(utils.CustomView):
                                   {'channel': interaction.channel.id}, {'supplier': None})
 
             # Remove supplier from channel
-            await interaction.channel.set_permissions(interaction.guild.get_member(supplier),
+            await interaction.channel.set_permissions(supplier,
                                                       overwrite=discord.PermissionOverwrite())
 
         # Send success message
@@ -640,8 +696,8 @@ class Claimed(utils.CustomView):
             return await interaction.message.delete()
 
         # Check if the supplier is not clicking on the button
-        supplier = ticket.get('supplier', None)
-        if supplier and interaction.user.id == ticket['supplier'] and ticket['user'] != ticket['supplier'] \
+        supplier_id = ticket.get('supplier', None)
+        if supplier_id and interaction.user.id == ticket['supplier'] and ticket['user'] != ticket['supplier'] \
                 and not interaction.user.guild_permissions.kick_members:
             raise utils.CustomError("You cannot mark this ticket as claimed!")
 
@@ -654,27 +710,26 @@ class Claimed(utils.CustomView):
                 thank you for supporting my education. I hope you enjoy
                 with your coins in skyblock!
 
-                **Please leave you review message by typing !vouch in
+                **Please leave you review message by using /vouch in
                 chat**
 
                 **Please use vouch command like below**:
 
-                ```!vouch <score> (out of 5) <message>```
+                ```/vouch <score> (out of 5) <message>```
 
-                **Example**: !vouch 5 I got my +120M thank you so much.
+                **Example**: /vouch 5 I got my +120M thank you so much.
                 """
             )
         )
 
         # Update supplier if there was one
-        if supplier:
-            Ticket.updateDocument(suppliers,
-                                  {'guild': interaction.guild.id, '_id': supplier})
-
+        if supplier_id:
             # Call supplier update method
-            self.add_ticket(interaction.guild.get_member(supplier), int(ticket['product'][:-1]))
-            await interaction.channel.set_permissions(interaction.guild.get_member(supplier),
-                                                      overwrite=discord.PermissionOverwrite())
+            supplier = interaction.guild.get_member(supplier_id)
+            if supplier:
+                self.add_ticket(supplier, int(ticket['product'][:-1]))
+                await interaction.channel.set_permissions(supplier,
+                                                          overwrite=discord.PermissionOverwrite())
 
         Ticket.updateDocument(active_tickets, {'channel': interaction.channel.id},
                               {'status': TicketStatuses.DELIVERED.value})
@@ -753,7 +808,8 @@ class Delivered(utils.CustomView):
         Ticket.buyingTicketCheck(interaction.channel.id)
 
         # Send the confirmation message
-        await interaction.response.send_message(interaction.guild.get_member(ticket['user']).mention,
+        user = interaction.guild.get_member(ticket['user'])
+        await interaction.response.send_message(user.mention if user else '',
                                                 embed=utils.embed(
                                                     title="Did you got your product?",
                                                     description="If you did please press the button below to proceed"
@@ -846,8 +902,8 @@ class ClaimTicket(utils.CustomView):
             await interaction.message.delete()
 
             # Update ticket
-            Ticket.updateDocument(active_tickets, {'channel': interaction.channel.id}, {'status': 'claimed',
-                                                                                        'supplier': supplier['user']})
+            Ticket.updateDocument(active_tickets, {'channel': interaction.channel.id},
+                                  {'status': TicketStatuses.CLAIMED.value, 'supplier': supplier['user']})
 
             await interaction.channel.send(embed=embed, view=Delivered(self.rate))
 
@@ -974,22 +1030,23 @@ class ManageTicket(utils.CustomView):
 
     @discord.ui.button(label='Close ticket', style=discord.ButtonStyle.red, custom_id="persistent_view:manage_ticket")
     async def callback(self, _, interaction: discord.Interaction):
+        ticket = Ticket.checkIsTicket(interaction)
+
         # Check if user is an admin
         if not interaction.user.guild_permissions.kick_members:
             raise utils.CustomError('You dont have permission to use this button')
 
         # Check if ticket is complete
-        ticket = active_tickets.find_one({'channel': interaction.channel.id})
-
         if ticket and ticket.get('payment_status', None):
             if (ticket['payment_status'] == 'Paid' or ticket['payment_status'] == 'Checking payment') and \
                     ticket['status'] != TicketStatuses.DELIVERED.value:
                 raise utils.CustomError("You cannot do that since its Paid and not Delivered!")
 
         # Send close ticket request
+        user = interaction.guild.get_member(ticket['user'])
         embed = utils.embed(
             title="",
-            description=f"""Hello {interaction.guild.get_member(ticket['user']).mention if ticket else ''}
+            description=f"""Hello {user.mention if user else ''}
             *A staff has evaluated the ticket to be completed and proposes closing the ticket.*
 
             If you do not have any further questions and your problems are solved, please close the """ +
@@ -1036,9 +1093,21 @@ async def closeTicket(interaction: discord.Interaction):
 
     # Setting the permission for the fetched user
     if ticket:
-        fetched_user = await interaction.guild.fetch_member(ticket['user'])
-        await interaction.channel.set_permissions(fetched_user,
-                                                  overwrite=discord.PermissionOverwrite(read_messages=False))
+        fetched_user = interaction.guild.get_member(ticket['user'])
+        if fetched_user:
+            await interaction.channel.set_permissions(fetched_user,
+                                                      overwrite=discord.PermissionOverwrite(read_messages=False))
+        if ticket['supplier']:
+            fetched_supplier = interaction.guild.get_member(ticket['supplier'])
+            if fetched_supplier:
+                await interaction.channel.set_permissions(fetched_supplier,
+                                                          overwrite=discord.PermissionOverwrite(read_messages=False))
+
+        for extra_user_id in ticket['extra_users']:
+            extra_user = interaction.guild.get_member(extra_user_id)
+            if extra_user:
+                await interaction.channel.set_permissions(extra_user,
+                                                          overwrite=discord.PermissionOverwrite(read_messages=False))
 
     # Sending delete ticket option to the channel
     embed = utils.embed(title='Ticket closed, Do you want to delete the ticket?', description='')
@@ -1194,7 +1263,13 @@ async def createTicket(interaction, ign=None, product=None, subject=TicketSubjec
                                    'status': TicketStatuses.OPEN.value,
                                    'subject': subject,
                                    'date': datetime.utcnow().strftime('%Y-%m-%d %H:%M'),
-                                   'ign': ign})
+                                   'ign': ign,
+                                   'payment_status': None,
+                                   'payment_method': None,
+                                   'supplier': None,
+                                   'log': None,
+                                   'html_log': None,
+                                   'extra_users': []})
         if product:
             # Inserting product data
             submitData(channel.id, product)

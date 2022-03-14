@@ -2,3 +2,6 @@
 /.idea/*
 /venv/
 /venv/*
+discord.log
+*.iml
+*.iml

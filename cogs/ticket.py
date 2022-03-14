@@ -1257,13 +1257,15 @@ async def createTicket(interaction, ign=None, product=None, subject=TicketSubjec
         await channel.send(embed=TICKET_CREATION_MESSAGE_EMBED, view=ManageTicket())
 
         # Inserting ticket data into database
-        active_tickets.insert_one({'guild': interaction.guild.id,
+        active_tickets.insert_one({'date': datetime.utcnow().strftime('%Y-%m-%d %H:%M'),
                                    'channel': channel.id,
+                                   'ign': ign,
+                                   'guild': interaction.guild.id,
                                    'user': interaction.user.id,
                                    'status': TicketStatuses.OPEN.value,
                                    'subject': subject,
-                                   'date': datetime.utcnow().strftime('%Y-%m-%d %H:%M'),
-                                   'ign': ign,
+                                   'product': None,
+                                   'message': None,
                                    'payment_status': None,
                                    'payment_method': None,
                                    'supplier': None,

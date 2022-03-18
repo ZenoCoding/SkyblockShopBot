@@ -6,7 +6,6 @@ import discord
 from discord.commands import Option, SlashCommandGroup
 from discord.ext import pages
 from discord.ext.commands import has_permissions, slash_command
-from pymongo.errors import DuplicateKeyError
 
 import utils
 import image
@@ -30,6 +29,9 @@ class Rate(discord.Cog):
 
     @staticmethod
     def add_user(user: discord.Member):
+        if suppliers.find_one({"user": user.id, "guild": user.guild.id})['retired']:
+            suppliers.update_one({"user": user.id, "guild": user.guild.id}, {"$set": {"retired": False}})
+
         start_data = {
             "user": user.id,
             "guild": user.guild.id,
@@ -56,7 +58,7 @@ class Rate(discord.Cog):
 
     @staticmethod
     def user_is_supplier(user: discord.Member):
-        if suppliers.find_one({"user": user.id, "guild": user.guild.id}) is not None:
+        if suppliers.find_one({"user": user.id, "guild": user.guild.id}) is not None or not suppliers.find_one({"user": user.id, "guild": user.guild.id})['retired']:
             return True
         return False
 

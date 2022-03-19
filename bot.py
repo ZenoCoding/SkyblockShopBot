@@ -6,10 +6,10 @@ from discord.ext import commands
 
 import utils
 
-TOKEN = "ODU5MTk2MjY5NDY4ODQ0MDUy.YNpK4Q.OtqYtlBu_YhPhelVg42Ym1MZI3U"
+TOKEN = "OTM5MTcyMjgyNzcxODQ5MjY3.Yf0-WQ.VuQ4M9n_TRR-KYwKT7b6Eka53Mo"
 
 # List of "Guilds"
-GUILDS = [859201687264690206, 952063174943858739]  # Put in here
+GUILDS = [859201687264690206]  # Put in here
 
 logger = logging.getLogger('discord')
 logger.setLevel(logging.INFO)

@@ -6,19 +6,18 @@ from io import BytesIO
 import chat_exporter
 import discord
 from bson.objectid import ObjectId
-from discord.commands import Option, slash_command, SlashCommandGroup
+from discord.commands import Option, SlashCommandGroup
 from discord.ext import commands, pages
 from discord.ui import Modal, InputText
 from pymongo import ReturnDocument, collection
 
 import utils
 
-
 active_tickets = utils.db.tickets
 suppliers = utils.db.suppliers
 config = utils.db.config
 
-active_tickets.delete_many({})
+# active_tickets.delete_many({})
 
 # Ticket constants
 MAX_TICKETS = 1
@@ -33,6 +32,7 @@ TICKET_CREATION_MESSAGE_EMBED = utils.embed(title='', description='')
 class TicketStatuses(Enum):
     OPEN = 'Open'
     CONFIRMED = 'Confirmed'
+    CLAIMED = 'Claimed'
     LISTED = 'Listed'
     DELIVERED = 'Delivered'
     CLOSED = 'Closed'
@@ -69,8 +69,9 @@ class Ticket(commands.Cog):
 
     # Replaces the collection.update_one and return the document after update
     @staticmethod
-    def updateDocument(col: collection, update_query: dict, updated_fields: dict):
-        return col.find_one_and_update(update_query, {'$set': updated_fields}, return_document=ReturnDocument.AFTER)
+    def updateDocument(col: collection, update_query: dict, updated_fields: dict, change_case: str = '$set'):
+        return col.find_one_and_update(update_query, {change_case: updated_fields},
+                                       return_document=ReturnDocument.AFTER)
 
     # Check if the channel is a ticket
     @staticmethod
@@ -115,6 +116,45 @@ class Ticket(commands.Cog):
 
         return ticket
 
+    # Export log and return both
+    @staticmethod
+    async def exportLog(interaction: [discord.Interaction, discord.ApplicationContext], ticket) -> [str, str]:
+        logs = []
+
+        # Getting channel history
+        messages = await interaction.channel.history().flatten()
+
+        # Extracting log to .txt
+        logs.append("\n".join(
+            [f"{message.author} [{message.created_at.hour}:{message.created_at.minute}]: {message.clean_content}" for
+             message in messages[::-1]]))
+        file = discord.File(fp=BytesIO(bytes(logs[0], encoding="utf-8")), filename="log.txt")
+
+        # Extracting log to .html
+        logs.append(await chat_exporter.export(interaction.channel))
+
+        # Fetching the log channel from database
+        logging_channel = config.find_one({'_id': interaction.guild.id}).get('ticket').get('logging', None)
+
+        # If there is a log channel set, send the log to that channel
+        if logging_channel:
+
+            # Getting log channel
+            channel = interaction.guild.get_channel(logging_channel)
+
+            # Checking if log channel doesn't exist, if not, set it to unset
+            if channel is None:
+                # Fetching and updating the ticket logging
+                config.find_one_and_update({'_id': interaction.guild.id}, {'$set': {'ticket.logging': None}})
+            else:
+                embed = utils.embed(title=f"{interaction.channel.name}",
+                                    description=f"Ticket was closed. Log is above." +
+                                                (f"\n**Buyer IGN**: {ticket['ign']}\n**Product**: {ticket['product']}"
+                                                 if ticket.get('product', None) else ''))
+                await channel.send(embed=embed, file=file)
+
+        return logs
+
     @commands.Cog.listener()
     async def on_ready(self):
         print("Ticket cog loaded.")
@@ -150,7 +190,7 @@ class Ticket(commands.Cog):
     @config.command(name="logging", description="Set ticket log channel")
     @commands.has_permissions(kick_members=True)
     async def set_log_channel(self, ctx: discord.ApplicationContext,
-                             channel: Option(discord.TextChannel, "Select ticket log channel")):
+                              channel: Option(discord.TextChannel, "Select ticket log channel")):
         # Fetching and updating the ticket log
         self.updateDocument(config, {'_id': ctx.guild.id}, {'ticket.logging': channel.id})
 
@@ -210,7 +250,7 @@ class Ticket(commands.Cog):
     @ticket.command(name="log", description="Get the selected log")
     @commands.has_permissions(kick_members=True)
     async def get_ticket_log(self, ctx: discord.ApplicationContext,
-                      ticket_id: Option(str, "Enter ticket id")):
+                             ticket_id: Option(str, "Enter ticket id")):
         # Checking if ticket id is correct
         try:
             ticket_object = ObjectId(ticket_id)
@@ -252,7 +292,7 @@ class Ticket(commands.Cog):
     @ticket.command(name="support-add", description='Adding support role (roles that can view tickets)')
     @commands.has_permissions(kick_members=True)
     async def ticket_support_role_add(self, ctx: discord.ApplicationContext,
-                          role: Option(discord.Role, "Select new support role")):
+                                      role: Option(discord.Role, "Select new support role")):
         # Fetching guild supports
         supports = config.find_one({'_id': ctx.guild.id})['supports']
 
@@ -321,9 +361,10 @@ class Ticket(commands.Cog):
     @ticket.command(name="payment-confirm", description='Confirms that the user has paid in the ticket')
     @commands.has_permissions(kick_members=True)
     async def admin_confirm_user_paid(self, ctx: discord.ApplicationContext,
-                             paymentmethod: Option(str,
-                                                   "Customer's payment method (Required if has not been selected)",
-                                                   required=False, choices=valid_payment_methods)):
+                                      paymentmethod: Option(str,
+                                                            "Customer's payment method (Required if has not been " +
+                                                            "selected)",
+                                                            required=False, choices=valid_payment_methods)):
         # Check if this channel is ticket
         ticket = self.checkIsTicket(ctx)
 
@@ -397,10 +438,10 @@ class Ticket(commands.Cog):
     @ticket.command(name="find", description="Lists all of the payment in a specified condition")
     @commands.has_permissions(kick_members=True)
     async def payment_list_condition(self, ctx: discord.ApplicationContext,
-                           condition: Option(str,
-                                             "The condition of ticket",
-                                             choices=[discord.OptionChoice(name="Checking payment"),
-                                                      discord.OptionChoice(name="Paid")])):
+                                     condition: Option(str,
+                                                       "The condition of ticket",
+                                                       choices=[discord.OptionChoice(name="Checking payment"),
+                                                                discord.OptionChoice(name="Paid")])):
         # Fetch the ticket from database based on condition
         tickets = active_tickets.find({'$or': [{'status': TicketStatuses.CONFIRMED.value,
                                                 'guild': ctx.guild.id,
@@ -457,7 +498,8 @@ class Ticket(commands.Cog):
         self.buyingTicketCheck(ctx.channel.id)
 
         # Send the message for user confirmation
-        await ctx.respond(ctx.guild.get_member(ticket['user']).mention,
+        user = ctx.guild.get_member(ticket['user'])
+        await ctx.respond(user.mention if user else '',
                           embed=utils.embed(
                               title="Did you got your product?",
                               description="If you did please press the button below to proceed"
@@ -481,6 +523,83 @@ class Ticket(commands.Cog):
         await ctx.response.send_message(embed=utils.embed(title="Are you sure?", description=desc),
                                         view=AbandonConfirmation(),
                                         ephemeral=True)
+
+    # Delete the ticket
+    @ticket.command(name="delete", description='Insta-Delete the ticket')
+    @commands.has_permissions(administrator=True)
+    async def delete_ticket(self, ctx: discord.ApplicationContext):
+        ticket = self.checkIsTicket(ctx)
+
+        # Check if ticket is closed or not, if not close it
+        if ticket['status'] != TicketStatuses.CLOSED.value:
+            logs = await self.exportLog(ctx, ticket)
+
+            # Closing the ticket as well as putting the log in database
+            Ticket.updateDocument(active_tickets,
+                                  {'channel': ctx.channel.id},
+                                  {'status': TicketStatuses.CLOSED.value, 'log': logs[0], 'html_log': logs[1][222::]})
+
+        # Delete the ticket channel
+        await ctx.channel.delete()
+
+    # Close the ticket
+    @ticket.command(name="close", description='Insta-Close the ticket')
+    @commands.has_permissions(administrator=True)
+    async def close_ticket(self, ctx: discord.ApplicationContext):
+        await closeTicket(ctx.interaction)
+
+    # Add a user to ticket
+    @ticket.command(name="user-add", description='Add a user to ticket')
+    @commands.has_permissions(kick_members=True)
+    async def add_user(self, ctx: discord.ApplicationContext,
+                       user: Option(discord.User, "User you want to add")):
+        # Check if is a ticket
+        ticket = self.checkIsTicket(ctx)
+
+        # Check if ticket is not closed
+        if ticket['status'] == TicketStatuses.CLOSED.value:
+            raise utils.CustomError("Ticket is closed! You cannot add a new member")
+
+        # Check if ticket has supplier
+        if ticket['status'] == TicketStatuses.CLAIMED.value and ticket['supplier'] == user.id:
+            raise utils.CustomError('You cannot add a supplier to ticket when the supplier already accepted the ticket')
+
+        # Add user to ticket + update the db
+        await ctx.channel.set_permissions(user,
+                                          overwrite=discord.PermissionOverwrite(read_messages=True, send_messages=True))
+        if user.id not in ticket['extra_users']:
+            Ticket.updateDocument(active_tickets, {'channel': ctx.channel.id}, {'extra_users': user.id}, '$push')
+
+        # Send successful response
+        await ctx.respond(embed=utils.embed(title='',
+                                            description=f'{user.mention} successfully added to {ctx.channel.mention}'))
+
+    # Remove a user from ticket
+    @ticket.command(name="user-remove", description='Remove a user from ticket')
+    @commands.has_permissions(kick_members=True)
+    async def remove_user(self, ctx: discord.ApplicationContext,
+                          user: Option(discord.User, "User you want to remove")):
+        # Check if is a ticket
+        ticket = self.checkIsTicket(ctx)
+
+        # Check if ticket is not closed
+        if ticket['status'] == TicketStatuses.CLOSED.value:
+            raise utils.CustomError("Ticket is closed! You cannot remove a member")
+
+        # Check if user is in extra-users
+        if user.id not in ticket['extra_users']:
+            raise utils.CustomError("This user is not in extra-users")
+
+        # Remove user from ticket + update the db
+
+        if not (ticket['status'] == TicketStatuses.CLAIMED.value and ticket['supplier'] == user.id):
+            await ctx.channel.set_permissions(user,
+                                              overwrite=discord.PermissionOverwrite())
+        Ticket.updateDocument(active_tickets, {'channel': ctx.channel.id}, {'extra_users': user.id}, '$pull')
+
+        # Send successful response
+        await ctx.respond(embed=utils.embed(title='',
+                                            description=f'{user.mention} removed from {ctx.channel.mention}'))
 
 
 # Bot views
@@ -546,7 +665,7 @@ class AbandonConfirmation(utils.CustomView):
 
         Ticket.buyingTicketCheck(interaction.channel.id)
 
-        supplier = ticket.get('supplier', None)
+        supplier = interaction.guild.get_member(ticket['supplier'])
 
         # Update supplier if there was one
         if supplier:
@@ -554,7 +673,7 @@ class AbandonConfirmation(utils.CustomView):
                                   {'channel': interaction.channel.id}, {'supplier': None})
 
             # Remove supplier from channel
-            await interaction.channel.set_permissions(interaction.guild.get_member(supplier),
+            await interaction.channel.set_permissions(supplier,
                                                       overwrite=discord.PermissionOverwrite())
 
         # Send success message
@@ -577,8 +696,8 @@ class Claimed(utils.CustomView):
             return await interaction.message.delete()
 
         # Check if the supplier is not clicking on the button
-        supplier = ticket.get('supplier', None)
-        if supplier and interaction.user.id == ticket['supplier'] and ticket['user'] != ticket['supplier'] \
+        supplier_id = ticket.get('supplier', None)
+        if supplier_id and interaction.user.id == ticket['supplier'] and ticket['user'] != ticket['supplier'] \
                 and not interaction.user.guild_permissions.kick_members:
             raise utils.CustomError("You cannot mark this ticket as claimed!")
 
@@ -591,27 +710,26 @@ class Claimed(utils.CustomView):
                 thank you for supporting my education. I hope you enjoy
                 with your coins in skyblock!
 
-                **Please leave you review message by typing !vouch in
+                **Please leave you review message by using /vouch in
                 chat**
 
                 **Please use vouch command like below**:
 
-                ```!vouch <score> (out of 5) <message>```
+                ```/vouch <score> (out of 5) <message>```
 
-                **Example**: !vouch 5 I got my +120M thank you so much.
+                **Example**: /vouch 5 I got my +120M thank you so much.
                 """
             )
         )
 
         # Update supplier if there was one
-        if supplier:
-            Ticket.updateDocument(suppliers,
-                                  {'guild': interaction.guild.id, '_id': supplier})
-
+        if supplier_id:
             # Call supplier update method
-            self.add_ticket(interaction.guild.get_member(supplier), int(ticket['product'][:-1]))
-            await interaction.channel.set_permissions(interaction.guild.get_member(supplier)
-                                                      , overwrite=discord.PermissionOverwrite())
+            supplier = interaction.guild.get_member(supplier_id)
+            if supplier:
+                self.add_ticket(supplier, int(ticket['product'][:-1]))
+                await interaction.channel.set_permissions(supplier,
+                                                          overwrite=discord.PermissionOverwrite())
 
         Ticket.updateDocument(active_tickets, {'channel': interaction.channel.id},
                               {'status': TicketStatuses.DELIVERED.value})
@@ -690,7 +808,8 @@ class Delivered(utils.CustomView):
         Ticket.buyingTicketCheck(interaction.channel.id)
 
         # Send the confirmation message
-        await interaction.response.send_message(interaction.guild.get_member(ticket['user']).mention,
+        user = interaction.guild.get_member(ticket['user'])
+        await interaction.response.send_message(user.mention if user else '',
                                                 embed=utils.embed(
                                                     title="Did you got your product?",
                                                     description="If you did please press the button below to proceed"
@@ -783,8 +902,8 @@ class ClaimTicket(utils.CustomView):
             await interaction.message.delete()
 
             # Update ticket
-            Ticket.updateDocument(active_tickets, {'channel': interaction.channel.id}, {'status': 'claimed',
-                                                                                        'supplier': supplier['user']})
+            Ticket.updateDocument(active_tickets, {'channel': interaction.channel.id},
+                                  {'status': TicketStatuses.CLAIMED.value, 'supplier': supplier['user']})
 
             await interaction.channel.send(embed=embed, view=Delivered(self.rate))
 
@@ -911,22 +1030,23 @@ class ManageTicket(utils.CustomView):
 
     @discord.ui.button(label='Close ticket', style=discord.ButtonStyle.red, custom_id="persistent_view:manage_ticket")
     async def callback(self, _, interaction: discord.Interaction):
+        ticket = Ticket.checkIsTicket(interaction)
+
         # Check if user is an admin
         if not interaction.user.guild_permissions.kick_members:
             raise utils.CustomError('You dont have permission to use this button')
 
         # Check if ticket is complete
-        ticket = active_tickets.find_one({'channel': interaction.channel.id})
-
         if ticket and ticket.get('payment_status', None):
             if (ticket['payment_status'] == 'Paid' or ticket['payment_status'] == 'Checking payment') and \
                     ticket['status'] != TicketStatuses.DELIVERED.value:
                 raise utils.CustomError("You cannot do that since its Paid and not Delivered!")
 
         # Send close ticket request
+        user = interaction.guild.get_member(ticket['user'])
         embed = utils.embed(
             title="",
-            description=f"""Hello {interaction.guild.get_member(ticket['user']).mention if ticket else ''}
+            description=f"""Hello {user.mention if user else ''}
             *A staff has evaluated the ticket to be completed and proposes closing the ticket.*
 
             If you do not have any further questions and your problems are solved, please close the """ +
@@ -943,68 +1063,7 @@ class CloseTicket(utils.CustomView):
 
     @discord.ui.button(label='✔ Close', style=discord.ButtonStyle.red, custom_id="persistent_view:close_ticket")
     async def yes(self, _, interaction: discord.Interaction):
-        # transcript_file = discord.File(fp=BytesIO(bytes(transcript[222::], encoding="utf-8")),
-        #                                filename=f"{interaction.channel.name}.html")
-
-        # Fetching the user with active ticket, so we change the satus to closed
-        ticket = active_tickets.find_one({'channel': interaction.channel.id,
-                                          'status': {'$ne': TicketStatuses.CLOSED.value}})
-
-        # Setting the permission for the fetched user
-        if ticket:
-            fetched_user = await interaction.guild.fetch_member(ticket['user'])
-            await interaction.channel.set_permissions(fetched_user,
-                                                      overwrite=discord.PermissionOverwrite(read_messages=False))
-
-        # Sending delete ticket option to the channel
-        embed = utils.embed(title='Ticket closed, Do you want to delete the ticket?', description='')
-        await interaction.response.send_message(embed=embed, view=DeleteTicket())
-
-        # If there is no user that means ticket is already close, so we just send the delete option
-        if ticket is None:
-            return
-
-        # Fetching the log channel from database
-        logging_channel = config.find_one({'_id': interaction.guild.id}).get('ticket').get('logging', None)
-
-        # Fetching the closed ticket category from database
-        closed_channel = config.find_one({'_id': interaction.guild.id}).get('ticket').get('closed', 0)
-
-        # Getting channel history
-        messages = await interaction.channel.history().flatten()
-        # Extracting log to .txt
-        numbers = "\n".join(
-            [f"{message.author} [{message.created_at.hour}:{message.created_at.minute}]: {message.clean_content}" for
-             message in messages[::-1]])
-        f = BytesIO(bytes(numbers, encoding="utf-8"))
-        file = discord.File(fp=f, filename="log.txt")
-
-        # Extracting log to .html
-        transcript = await chat_exporter.export(interaction.channel)
-
-        # Closing the ticket as well as putting the log in database
-        Ticket.updateDocument(active_tickets,
-                              {'channel': interaction.channel.id, 'status': {'$ne': TicketStatuses.CLOSED.value}},
-                              {'status': TicketStatuses.CLOSED.value, 'log': numbers, 'html_log': transcript[222::]})
-
-        await interaction.channel.edit(category=interaction.guild.get_channel(closed_channel))
-
-        # If there is a log channel set, send the log to that channel
-        if logging_channel:
-
-            # Getting log channel
-            channel = interaction.guild.get_channel(logging_channel)
-
-            # Checking if log channel doesn't exist, if not, set it to unset
-            if channel is None:
-                # Fetching and updating the ticket logging
-                config.find_one_and_update({'_id': interaction.guild.id}, {'$set': {'ticket.logging': None}})
-            else:
-                embed = utils.embed(title=f"{interaction.channel.name}",
-                                    description=f"Ticket was closed. Log is above." +
-                                                (f"\n**Buyer IGN**: {ticket['ign']}\n**Product**: {ticket['product']}"
-                                                 if ticket.get('product', None) else ''))
-            await channel.send(embed=embed, file=file)
+        await closeTicket(interaction)
 
     @discord.ui.button(label='❌ Cancel', style=discord.ButtonStyle.secondary,
                        custom_id="persistent_view:close_ticket_delete")
@@ -1025,6 +1084,51 @@ class DeleteTicket(utils.CustomView):
 
 
 # Methods
+
+# Close ticket
+async def closeTicket(interaction: discord.Interaction):
+    # Fetching the user with active ticket, so we change the satus to closed
+    ticket = active_tickets.find_one({'channel': interaction.channel.id,
+                                      'status': {'$ne': TicketStatuses.CLOSED.value}})
+
+    # Setting the permission for the fetched user
+    if ticket:
+        fetched_user = interaction.guild.get_member(ticket['user'])
+        if fetched_user:
+            await interaction.channel.set_permissions(fetched_user,
+                                                      overwrite=discord.PermissionOverwrite(read_messages=False))
+        if ticket['supplier']:
+            fetched_supplier = interaction.guild.get_member(ticket['supplier'])
+            if fetched_supplier:
+                await interaction.channel.set_permissions(fetched_supplier,
+                                                          overwrite=discord.PermissionOverwrite(read_messages=False))
+
+        for extra_user_id in ticket['extra_users']:
+            extra_user = interaction.guild.get_member(extra_user_id)
+            if extra_user:
+                await interaction.channel.set_permissions(extra_user,
+                                                          overwrite=discord.PermissionOverwrite(read_messages=False))
+
+    # Sending delete ticket option to the channel
+    embed = utils.embed(title='Ticket closed, Do you want to delete the ticket?', description='')
+    await interaction.response.send_message(embed=embed, view=DeleteTicket())
+
+    # If there is no user that means ticket is already close, so we just send the delete option
+    if ticket is None:
+        return
+
+    logs = await Ticket.exportLog(interaction, ticket)
+
+    # Fetching the closed ticket category from database
+    closed_channel = config.find_one({'_id': interaction.guild.id}).get('ticket').get('closed', 0)
+
+    # Closing the ticket as well as putting the log in database
+    Ticket.updateDocument(active_tickets,
+                          {'channel': interaction.channel.id, 'status': {'$ne': TicketStatuses.CLOSED.value}},
+                          {'status': TicketStatuses.CLOSED.value, 'log': logs[0], 'html_log': logs[1][222::]})
+
+    await interaction.channel.edit(category=interaction.guild.get_channel(closed_channel))
+
 
 # Generate info for product tickets
 def generateInfo(channel_id) -> discord.Embed:
@@ -1153,13 +1257,21 @@ async def createTicket(interaction, ign=None, product=None, subject=TicketSubjec
         await channel.send(embed=TICKET_CREATION_MESSAGE_EMBED, view=ManageTicket())
 
         # Inserting ticket data into database
-        active_tickets.insert_one({'guild': interaction.guild.id,
+        active_tickets.insert_one({'date': datetime.utcnow().strftime('%Y-%m-%d %H:%M'),
                                    'channel': channel.id,
+                                   'ign': ign,
+                                   'guild': interaction.guild.id,
                                    'user': interaction.user.id,
                                    'status': TicketStatuses.OPEN.value,
                                    'subject': subject,
-                                   'date': datetime.utcnow().strftime('%Y-%m-%d %H:%M'),
-                                   'ign': ign})
+                                   'product': None,
+                                   'message': None,
+                                   'payment_status': None,
+                                   'payment_method': None,
+                                   'supplier': None,
+                                   'log': None,
+                                   'html_log': None,
+                                   'extra_users': []})
         if product:
             # Inserting product data
             submitData(channel.id, product)

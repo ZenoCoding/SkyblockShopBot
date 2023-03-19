@@ -13,4 +13,4 @@ Main Features:
 
 Planned Features:
 
-- dunno yetlol 
+- **Project Terminated**

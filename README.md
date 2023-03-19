@@ -1,7 +1,6 @@
 # SkyblockShopBot
 
-This is a project for managing an online discord shop, which features many features. This github is **private, and will
-remain this way.**
+This is a project for managing an online discord shop, which includes many features that enhance the user as well as administrator experience.
 
 Main Features:
 
@@ -9,6 +8,7 @@ Main Features:
 - Ticket System
 - Rate/Supplier System to sell and buy items
 - Price Calculate which supports different currencies
+- Leveling system including  built with procedural image manipulation
 - And more!
 
 Planned Features:

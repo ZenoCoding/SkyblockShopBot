@@ -6,7 +6,7 @@ import pymongo
 import requests
 
 # Pymongo
-conn_str = "mongodb+srv://shopbot:admin@skyblockshopdata.t0jjh.mongodb.net/test"
+conn_str = "mongodb token"
 
 mongo = pymongo.MongoClient(conn_str)
 db = mongo['data']
